@@ -4,6 +4,8 @@ data_source/**
 __pycache__/
 *.py[cod]
 *$py.class
+rag_graphs/
+*.csv
 
 # C extensions
 *.so

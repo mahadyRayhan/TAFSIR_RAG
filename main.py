@@ -1,135 +1,203 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template, send_from_directory # Added render_template, send_from_directory
 import time
 import os
-from hadid_v3 import TafsirRAG # Import the updated class
+from tafsir import TafsirRAG # Import the updated class
 import glob
+import logging # Ensure logging is imported
 
 # --- Global Initialization ---
 print("Starting Flask application...")
 start_init_time = time.time()
 rag_system = None # Initialize as None
+# Using the exact doc_pattern and initialization logic from your original file
+doc_pattern_original = "data_source/ibn_kathir/*.pdf"
+
 try:
     # Ensure the path pattern correctly points to your PDFs
-    doc_pattern = "data/ibn_kathir/*.pdf"
-    # if not os.path.exists("data") or not glob.glob(doc_pattern):
-    #      print(f"\nWARNING: Document directory 'data' or PDFs matching '{doc_pattern}' not found.")
-    #      print("Please ensure the directory exists and contains PDF files relative to main.py")
-    #      # Depending on requirements, you might exit or continue without a functional RAG
-    #      # raise FileNotFoundError("Required document path not found.")
-
-    # # Create a single instance - runs __init__ once
-    # rag_system = TafsirRAG(
-    #         vector_db_type="chroma", # Or "csv", "inmemory"
-    #         log_level="INFO",        # Or "DEBUG"
-    #         documents_path=doc_pattern,
-    #         # vector_db_path="my_custom_hadith_db.csv" # Optional: Custom path
-    #         use_embedding_cache=True, # Enable caching
-    #         use_llm_cache=True
-    #     )
+    # The nested try-except for initialization is specific to your original file, preserving it.
     try:
-        # Ensure the path pattern correctly points to your PDFs
-        doc_pattern = "data/*.pdf"  # <--- THIS IS THE CURRENT PATH IN YOUR LOGS
-        if not os.path.exists("data") or not glob.glob(doc_pattern): # Or the folder your PDF is in
-            print(f"\nWARNING: Document directory 'data' or PDFs matching '{doc_pattern}' not found.")
-            # ...
+        # Check if the directory exists before globbing, as in your original
+        pdf_directory_original = os.path.dirname(doc_pattern_original) # "data_source/ibn_kathir"
+        if not os.path.exists(pdf_directory_original) :
+            print(f"\nWARNING: Document directory '{pdf_directory_original}' for PDFs matching '{doc_pattern_original}' not found.")
+            # rag_system will remain None as per original logic flow if path doesn't exist.
+        elif not glob.glob(doc_pattern_original):
+             print(f"\nWARNING: No PDFs found matching '{doc_pattern_original}' in directory '{pdf_directory_original}'.")
+             # rag_system will remain None
+        
+        # Proceed with initialization attempt regardless, to match original behavior
+        # where TafsirRAG itself might raise FileNotFoundError if paths are ultimately bad.
         rag_system = TafsirRAG(
-                vector_db_type="chroma",
+                vector_db_type="csv", #"chroma",
                 log_level="INFO",
-                documents_path=doc_pattern, # <--- THIS VALUE IS BEING USED
+                documents_path=doc_pattern_original, # Using your original pattern
                 use_embedding_cache=True,
                 use_llm_cache=True
             )
-    except FileNotFoundError as e:
-        print(f"FATAL: Required document path not found: {e}")
-        # Handle the error as needed, e.g., exit or set rag_system to None
-        rag_system = None
-    end_init_time = time.time()
-    print(f"TafsirRAG initialization completed in {end_init_time - start_init_time:.2f} seconds.")
+    except FileNotFoundError as e: # This is the inner FileNotFoundError
+        print(f"FATAL (inner try): Required document path not found during TafsirRAG init: {e}")
+        rag_system = None # Ensure rag_system is None
+    
+    # This part is reached if the inner try for TafsirRAG instantiation didn't raise an unhandled exception
+    # or if it successfully initialized.
+    if rag_system:
+        end_init_time = time.time()
+        print(f"TafsirRAG initialization completed in {end_init_time - start_init_time:.2f} seconds.")
+    elif not os.path.exists(os.path.dirname(doc_pattern_original)): # If rag_system is still None due to path warning
+        print(f"TafsirRAG initialization SKIPPED because directory '{os.path.dirname(doc_pattern_original)}' was not found.")
+    elif not glob.glob(doc_pattern_original):
+        print(f"TafsirRAG initialization SKIPPED because no PDFs found matching '{doc_pattern_original}'.")
 
-# Handle potential errors during initialization more gracefully
-except FileNotFoundError as e:
-     print(f"FATAL: Failed to initialize TafsirRAG - Required document path not found: {e}")
-     # rag_system remains None
+
+# Outer exception handling from your original file
+except FileNotFoundError as e: # This catches FileNotFoundError if raised by TafsirRAG directly to the outer block
+     print(f"FATAL (outer try): Failed to initialize TafsirRAG - Required document path not found: {e}")
+     rag_system = None
 except ImportError as e:
      print(f"FATAL: Failed to initialize TafsirRAG - Missing dependency: {e}")
      print("Please ensure all required libraries (like chromadb if used) are installed.")
-     # rag_system remains None
+     rag_system = None
 except Exception as e:
      print(f"FATAL: An unexpected error occurred during TafsirRAG initialization: {e}")
      import traceback
      traceback.print_exc()
-     # rag_system remains None
+     rag_system = None
 
 app = Flask(__name__)
 
+# --- Routes for UI and Static Files ---
+@app.route('/')
+def index():
+    """Serves the main HTML page for the UI."""
+    return render_template('index.html') # Assumes index.html is in 'templates' folder
 
+@app.route('/rag_graphs/<path:filename>')
+def serve_graph_image(filename):
+    """Serves graph images from the 'rag_graphs' directory."""
+    # The 'rag_graphs' directory is expected to be at the same level as main.py
+    # or where the tafsir.py script creates it.
+    graph_dir = "rag_graphs" 
+    if not os.path.exists(graph_dir):
+        # Optionally log that the directory doesn't exist yet
+        logger = getattr(rag_system, 'logger', logging.getLogger('flask.app'))
+        logger.warning(f"Attempted to serve graph from '{graph_dir}', but directory does not exist.")
+        return "Graph directory not found.", 404
+    return send_from_directory(graph_dir, filename)
+
+@app.route('/history', methods=['GET'])
+def get_history():
+    current_logger = logging.getLogger('app.history')
+    if rag_system and hasattr(rag_system, 'logger'):
+        current_logger = rag_system.logger
+    # ... (add more robust logger initialization if needed, similar to handle_query)
+
+    if rag_system is None or rag_system.feedback_history is None:
+        current_logger.error("API request for /history failed: RAG system or feedback_history not initialized.")
+        return jsonify({"error": "History is not available."}), 503
+
+    try:
+        # Extract only 'query' and 'answer' from each feedback record
+        simplified_history = []
+        for record in rag_system.feedback_history:
+            # print(record.get("query"), record.get("answer"), record.get("reasoning_trace").split('->')[-1])  # Debug print
+            simplified_history.append({
+                "question": record.get("query"),  # Use .get for safety
+                "answer": record.get("answer")
+            })
+        
+        # The history is typically shown in reverse chronological order (newest first)
+        return jsonify(simplified_history[::-1]) 
+
+    except Exception as e:
+        current_logger.exception(f"API Error during /history processing: {e}")
+        return jsonify({"error": f"An internal error occurred retrieving history: {str(e)}"}), 500
+    
+# --- Your Original /query Route ---
 @app.route('/query', methods=['POST'])
 def handle_query():
     """Handles incoming queries by calling the RAG system."""
+    # Using the logger fetching logic from your original file
+    # Default to a basic logger if rag_system or its logger is not available
+    current_logger = logging.getLogger('app.query') # Fallback logger
+    if rag_system and hasattr(rag_system, 'logger'):
+        current_logger = rag_system.logger
+    elif rag_system is None: # If RAG system itself is None, use a basic configured logger
+        if not current_logger.hasHandlers():
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            current_logger.addHandler(handler)
+            current_logger.setLevel(logging.INFO)
+
+
     if rag_system is None:
-         # Use logger if available
-         logger = getattr(rag_system, 'logger', logging.getLogger())
-         logger.error("API request failed: RAG system object is not initialized.")
+         current_logger.error("API request failed: RAG system object is not initialized.")
          return jsonify({"error": "RAG system is not available. Initialization failed."}), 503
 
     if not request.is_json:
+        current_logger.warning("Invalid request to /query: Request must be JSON.")
         return jsonify({"error": "Request must be JSON"}), 400
 
     data = request.get_json()
     question = data.get('question')
     if not question:
+        current_logger.warning("Invalid request to /query: Missing 'question' in request body.")
         return jsonify({"error": "Missing 'question' in request body"}), 400
 
     # Optional: Get parameters from request
     top_k = data.get('top_k', 5)
     max_hops = data.get('max_hops', 3)
     request_eval = data.get('evaluate', False)
-    generate_graph = data.get('generate_graph', True) # Add graph flag, default True
+    generate_graph = data.get('generate_graph', True)
 
-    rag_system.logger.info(f"Received API query: '{question}' (top_k={top_k}, max_hops={max_hops}, eval={request_eval}, graph={generate_graph})")
+    current_logger.info(f"Received API query: '{question}' (top_k={top_k}, max_hops={max_hops}, eval={request_eval}, graph={generate_graph})")
 
     try:
-        # Call the process_query method, including the new flag
+        # Call the process_query method
         result_dict = rag_system.process_query(
             question=question,
             top_k=top_k,
             max_hops=max_hops,
             request_evaluation=request_eval,
-            generate_graph=generate_graph # Pass the flag
+            generate_graph=generate_graph
         )
 
-        # Construct the API response from the result dictionary
+        # Construct the API response
         api_response = {
             "query": question,
             "answer": result_dict.get('final_answer', 'Error: No answer generated.'),
             "source_info": result_dict.get('source_info', ''),
             "confidence": result_dict.get('confidence_score'),
-            "formatted_reasoning": result_dict.get('formatted_reasoning'), # Add formatted trace
+            "formatted_reasoning": result_dict.get('formatted_reasoning'),
             "evaluation": result_dict.get('evaluation_metrics') if request_eval else None,
-            "debug": result_dict.get('debug_info') # Contains graph_filename
+            "debug": result_dict.get('debug_info')
         }
-
-        # Remove keys with None values for a cleaner response
         api_response = {k: v for k, v in api_response.items() if v is not None}
-
         return jsonify(api_response)
 
     except Exception as e:
-        logger = getattr(rag_system, 'logger', logging.getLogger())
-        logger.exception(f"API Error during RAG processing for query '{question}': {e}")
-        return jsonify({"error": f"An internal error occurred processing your query."}), 500
+        current_logger.exception(f"API Error during RAG processing for query '{question}': {e}")
+        return jsonify({"error": f"An internal error occurred processing your query: {str(e)}"}), 500
 
 
 # --- Run Flask App (for local testing) ---
 if __name__ == '__main__':
-    # Make sure initialization didn't fail critically before running
+    # Using the exact startup conditions from your original file
     if rag_system is None:
          print("\nCRITICAL ERROR: TafsirRAG system failed to initialize. Flask app cannot start.")
          print("Please check errors above, ensure dependencies are installed, and document paths are correct.")
+         print(f"  Specifically, check the PDF path: '{doc_pattern_original}' and its parent directory.")
     else:
          print("Starting Flask development server...")
-         # Use 0.0.0.0 to allow connections from other machines (like your test script if not local)
-         # Use a port that's likely free, e.g., 5001
          server_port = int(os.environ.get("PORT", 5001))
-         print(f"Flask server running on http://0.0.0.0:{server_port}")
-         app.run(debug=False, host='0.0.0.0', port=server_port) # Turn debug=False for cleaner logs in production/testing
+         
+         # Check for templates directory
+         if not os.path.exists("templates"):
+             print("WARNING: 'templates' directory not found. Create it and place 'index.html' inside for the UI to work.")
+         # Check for rag_graphs directory (it's created by tafsir.py, so just inform)
+         if not os.path.exists("rag_graphs"):
+             print("INFO: 'rag_graphs' directory not found. It should be created by the RAG system when 'generate_graph' is true.")
+
+         print(f"Flask server running. Open your browser to http://127.0.0.1:{server_port}/")
+         # threaded=True can be helpful for development to handle multiple simultaneous requests better from the UI
+         app.run(debug=False, host='0.0.0.0', port=server_port, threaded=True)

@@ -458,56 +458,100 @@ class TafsirRAG:
 
     def _load_or_build_csv_db(self):
         """Loads the vector database from CSV or builds it if not found."""
-        self.vector_db_df: Optional[pd.DataFrame] = None # Store DataFrame here
+        self.vector_db_df: Optional[pd.DataFrame] = None
         try:
             if os.path.exists(self.vector_db_path):
                 self.logger.info(f"Loading existing vector database from {self.vector_db_path}...")
                 self.vector_db_df = pd.read_csv(self.vector_db_path)
-                if 'embeddings' in self.vector_db_df.columns:
-                    # Check type of first element to decide conversion
-                    first_emb = self.vector_db_df['embeddings'].iloc[0]
-                    if isinstance(first_emb, str):
-                        self.logger.info("Converting string embeddings in CSV to numpy arrays...")
-                        # Use a robust parsing method
-                        self.vector_db_df['embeddings'] = self.vector_db_df['embeddings'].apply(
-                             lambda x: np.array(list(map(float, re.findall(r"-?\d+\.?\d*", x)))) if isinstance(x, str) else np.array([])
-                         )
-                    elif isinstance(first_emb, list):
-                        self.vector_db_df['embeddings'] = self.vector_db_df['embeddings'].apply(np.array)
-                    elif isinstance(first_emb, np.ndarray):
-                        pass # Already numpy arrays
-                    else:
-                         self.logger.warning(f"Embeddings column has unexpected type: {type(first_emb)}. Skipping conversion.")
 
-                    # Basic validation
-                    if len(self.vector_db_df) > 0 and len(self.vector_db_df['embeddings'].iloc[0]) > 0:
-                         self.logger.info(f"CSV Vector database loaded successfully. Shape: {self.vector_db_df.shape}, Embedding Dim: {len(self.vector_db_df['embeddings'].iloc[0])}")
-                    else:
-                         self.logger.warning(f"CSV Vector database loaded but seems empty or has invalid embeddings. Shape: {self.vector_db_df.shape}")
-
+                if 'embeddings' not in self.vector_db_df.columns:
+                    self.logger.error(f"CSV file '{self.vector_db_path}' is missing the 'embeddings' column. Will attempt to rebuild.")
+                    self.vector_db_df = None # Mark for rebuild
+                elif self.vector_db_df.empty:
+                    self.logger.info(f"CSV file '{self.vector_db_path}' is empty. Will attempt to rebuild.")
+                    self.vector_db_df = None # Mark for rebuild
                 else:
-                    self.logger.error(f"CSV file '{self.vector_db_path}' is missing the 'embeddings' column.")
-                    self.vector_db_df = None # Mark as failed load
-            else:
-                self.logger.info(f"CSV Vector Database '{self.vector_db_path}' not found. Building index...")
-                self.vector_db_df = self._build_index_and_populate_vector_db() # Build and store in df
+                    self.logger.info("Converting string embeddings in CSV to numpy arrays...")
+                    # Robust parsing for embeddings
+                    def parse_embedding_str(x):
+                        if isinstance(x, str):
+                            # Remove brackets and split by comma, then convert to float
+                            try:
+                                # Handle cases like "[0.1, 0.2]" or "0.1,0.2" after stripping brackets
+                                stripped_x = x.strip()
+                                if stripped_x.startswith('[') and stripped_x.endswith(']'):
+                                    stripped_x = stripped_x[1:-1]
+
+                                if not stripped_x: # Empty string inside brackets or empty after strip
+                                    return np.array([])
+
+                                return np.array([float(val) for val in stripped_x.split(',') if val.strip()])
+                            except ValueError:
+                                self.logger.warning(f"Could not parse embedding string to float list: '{x}'. Returning empty array.")
+                                return np.array([]) # Problematic string
+                        elif isinstance(x, (list, np.ndarray)): # Already parsed or in good format (less likely from basic CSV read)
+                            return np.array(x)
+                        else: # Handle NaN or other unexpected types
+                            return np.array([])
+
+                    self.vector_db_df['embeddings'] = self.vector_db_df['embeddings'].apply(parse_embedding_str)
+
+                    # --- START: Added Validation and Filtering ---
+                    if not self.vector_db_df.empty:
+                        expected_dim = None
+                        # Try to find the dimension of the first valid embedding
+                        for emb in self.vector_db_df['embeddings']:
+                            if isinstance(emb, np.ndarray) and emb.ndim == 1 and emb.size > 0:
+                                expected_dim = emb.shape[0]
+                                self.logger.info(f"Determined expected embedding dimension: {expected_dim} from loaded CSV.")
+                                break
+
+                        if expected_dim is not None:
+                            original_count = len(self.vector_db_df)
+                            # Filter rows: keep only those where embedding is a numpy array of the expected dimension
+                            self.vector_db_df = self.vector_db_df[
+                                self.vector_db_df['embeddings'].apply(
+                                    lambda e: isinstance(e, np.ndarray) and e.ndim == 1 and e.shape[0] == expected_dim
+                                )
+                            ]
+                            filtered_count = len(self.vector_db_df)
+                            if original_count > filtered_count:
+                                self.logger.warning(f"Filtered out {original_count - filtered_count} rows from CSV due to invalid or mismatched embedding dimensions. Kept {filtered_count} rows.")
+
+                            if filtered_count == 0:
+                                self.logger.error("CRITICAL: No valid embeddings found in CSV after filtering. Vector DB will be empty. Attempting to rebuild.")
+                                self.vector_db_df = None # Mark for rebuild
+                            else:
+                                self.logger.info(f"Successfully loaded and validated {filtered_count} embeddings from {self.vector_db_path}.")
+                        elif not self.vector_db_df.empty : # If df is not empty but expected_dim couldn't be found
+                            self.logger.error("CRITICAL: Could not determine a valid embedding dimension from the loaded CSV. All embeddings might be invalid. Attempting to rebuild.")
+                            self.vector_db_df = None # Mark for rebuild
+                    # --- END: Added Validation and Filtering ---
+
+            # If vector_db_df is None (due to missing file, errors, or failed validation), try to build it
+            if self.vector_db_df is None or self.vector_db_df.empty:
+                self.logger.info(f"Vector Database '{self.vector_db_path}' needs to be built (or rebuilt).")
+                self.vector_db_df = self._build_index_and_populate_vector_db()
                 if self.vector_db_df is not None and not self.vector_db_df.empty:
-                     self._save_dataframe_to_csv(self.vector_db_df, self.vector_db_path)
+                    self._save_dataframe_to_csv(self.vector_db_df, self.vector_db_path)
                 else:
-                     self.logger.error("Failed to build index, CSV database remains unavailable.")
+                    self.logger.error("Failed to build index, CSV database remains unavailable.")
 
-
-        except FileNotFoundError as fnf:
-            self.logger.error(f"Error during CSV DB loading: {fnf}")
-            self.vector_db_df = None
+        except FileNotFoundError: # This specific exception is less likely with os.path.exists
+            self.logger.error(f"Error during CSV DB loading (FileNotFound): {self.vector_db_path}. Will attempt to build.")
+            self.vector_db_df = None # Should trigger build
+            # (The rest of the build logic from above will handle it)
         except Exception as e:
-            self.logger.exception(f"An unexpected error occurred during CSV DB loading/building: {e}")
-            self.vector_db_df = None # Mark as failed
+            self.logger.exception(f"An unexpected error occurred during CSV DB loading/building: {e}. Will attempt to rebuild.")
+            self.vector_db_df = None # Should trigger build
+            # (The rest of the build logic from above will handle it)
 
         if self.vector_db_df is None or self.vector_db_df.empty:
-             self.logger.critical("CRITICAL ERROR: CSV Vector database could not be loaded or built.")
-             # Depending on strictness, you might want to raise an error here
-             # raise ValueError("Vector database could not be loaded or built.")
+            self.logger.critical("CRITICAL ERROR: CSV Vector database could not be loaded or built successfully. The system may not be able to answer questions.")
+            # Depending on strictness, you might want to raise an error here to halt initialization
+            # raise ValueError("Vector database could not be loaded or built.")
+        else:
+            self.logger.info(f"CSV Vector database is ready with {len(self.vector_db_df)} entries.")
 
     def _load_or_build_inmemory_db(self):
         """Loads vector database into memory (from CSV if exists, else builds)."""
@@ -554,7 +598,7 @@ class TafsirRAG:
 
         # --- 2. Embedding Generation (Batched) ---
         chunk_texts = [info["chunk_text"] for info in all_chunks_info]
-        chunk_texts = chunk_texts[:200]
+        chunk_texts = chunk_texts[:50]
         self.logger.info(f"Generating embeddings for {len(chunk_texts)} chunks...")
         all_embeddings = self._batch_get_embeddings(chunk_texts, task_type="RETRIEVAL_DOCUMENT")
 

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tafsir RAG - History UI</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            background-color: #f0f2f5;
+            color: #1c1e21;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .header {
+            background-color: #4A76A8;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            flex-shrink: 0;
+        }
+        .main-container {
+            display: flex;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+        .panel {
+            padding: 15px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            height: 100%;
+        }
+        .left-panel {
+            width: 20%;
+            min-width: 200px;
+            background-color: #f7f8fa;
+            border-right: 1px solid #d1d1d1;
+        }
+        .middle-panel {
+            width: 55%;
+            background-color: #ffffff;
+            display: flex;
+            flex-direction: column;
+        }
+        .right-panel {
+            width: 25%;
+            min-width: 250px;
+            background-color: #f7f8fa;
+            border-left: 1px solid #d1d1d1;
+        }
+        .panel h2 {
+            margin-top: 0;
+            color: #333;
+            font-size: 1.1em;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 8px;
+        }
+        #resourceFilesList { list-style-type: none; padding: 0; }
+        #resourceFilesList li {
+            padding: 8px 5px; border-bottom: 1px solid #e9e9e9;
+            font-size: 0.9em; cursor: default; word-break: break-all;
+        }
+        #resourceFilesList li:last-child { border-bottom: none; }
+        #chatArea {
+           flex-grow: 1; overflow-y: auto; padding: 10px;
+           border-bottom: 1px solid #ddd;
+        }
+        #queryFormContainer { padding: 15px 10px; background-color: #f0f2f5; flex-shrink: 0; }
+        #queryForm textarea {
+            width: calc(100% - 22px); padding: 10px; border-radius: 18px;
+            border: 1px solid #ccd0d5; min-height: 40px; resize: vertical;
+            margin-bottom: 10px; font-size: 1em;
+        }
+        #queryForm button { /* Style updated here */
+            background-color: #007bff; color: white; padding: 10px 15px;
+            border: none; border-radius: 18px; cursor: pointer;
+            font-size: 1em; transition: background-color 0.2s;
+            width: 100%; /* Applied user's requested style */
+        }
+        #queryForm button:hover { background-color: #0056b3; }
+        #queryForm button:disabled { background-color: #bdc1c5; cursor: not-allowed; }
+        .current-result-section {
+            margin-bottom: 15px; padding: 10px; border: 1px solid #e7e7e7;
+            border-radius: 5px; background-color: #f9f9f9;
+        }
+        .current-result-section h3 { margin-top: 0; font-size: 1em; color: #444;}
+        .current-result-section pre, .current-result-section div {
+            white-space: pre-wrap; word-wrap: break-word; background-color: #f0f2f5;
+            padding: 8px; border-radius: 4px; font-size: 0.9em;
+            max-height: 250px; overflow-y: auto;
+        }
+        #historyList { list-style-type: none; padding: 0; }
+        #historyList li {
+            padding: 10px; border-bottom: 1px solid #e0e0e0;
+            cursor: pointer; transition: background-color 0.2s;
+        }
+        #historyList li:hover { background-color: #e9ecef; }
+        #historyList li .history-query {
+            font-weight: bold; font-size: 0.95em; color: #0056b3;
+            margin-bottom: 4px; display: block;
+        }
+        #historyList li .history-answer-snippet {
+            font-size: 0.85em; color: #555; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; display: block;
+        }
+        .loading { text-align: center; font-style: italic; color: #777; margin: 10px 0; }
+        .error-message { color: #d93025; font-weight: bold; margin: 10px 0; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="header"><h1>Tafsir RAG System</h1></div>
+    <div class="main-container">
+        <div class="panel left-panel">
+            <h2>Resource Files</h2>
+            <ul id="resourceFilesList"></ul>
+            <div id="resourceFilesLoading" class="loading" style="display: none;">Loading files...</div>
+        </div>
+
+        <div class="panel middle-panel">
+            <div id="chatArea">
+                 <div id="currentQueryDisplay" style="display:none;">
+                    <h3>Question:</h3>
+                    <div id="currentQuestionText"></div>
+                    <div class="current-result-section"><h3>Answer:</h3><div id="answerDisplay"></div></div>
+                    <div class="current-result-section"><h3>Confidence:</h3><div id="confidenceDisplay"></div></div>
+                    <div class="current-result-section" id="evaluationContainer" style="display: none;">
+                        <h3>Evaluation:</h3><pre id="evaluationDisplay"></pre>
+                    </div>
+                </div>
+            </div>
+            <div id="queryFormContainer">
+                <div id="loadingMessage" class="loading" style="display: none;">Processing...</div>
+                <div id="errorMessage" class="error-message" style="display: none;"></div>
+                <form id="queryForm">
+                    <textarea id="question" name="question" placeholder="Ask about Tafsir..."></textarea>
+                    <button type="submit" id="submitButton" style="width: 100%;">Send</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="panel right-panel">
+            <h2>History</h2>
+            <div id="historyLoading" class="loading" style="display: none;">Loading history...</div>
+            <ul id="historyList"></ul>
+        </div>
+    </div>
+
+    <script>
+        const historyListEl = document.getElementById('historyList');
+        const historyLoadingEl = document.getElementById('historyLoading');
+        const resourceFilesListEl = document.getElementById('resourceFilesList');
+        const resourceFilesLoadingEl = document.getElementById('resourceFilesLoading');
+        
+        const currentQueryDisplayEl = document.getElementById('currentQueryDisplay');
+        const currentQuestionTextEl = document.getElementById('currentQuestionText');
+        const answerDisplayEl = document.getElementById('answerDisplay');
+        const confidenceDisplayEl = document.getElementById('confidenceDisplay');
+        const evaluationContainerEl = document.getElementById('evaluationContainer');
+        const evaluationDisplayEl = document.getElementById('evaluationDisplay');
+
+        const loadingMessageEl = document.getElementById('loadingMessage');
+        const errorMessageEl = document.getElementById('errorMessage');
+        const submitButtonEl = document.getElementById('submitButton');
+        const queryFormEl = document.getElementById('queryForm');
+        const questionTextareaEl = document.getElementById('question');
+
+        async function loadResourceFiles() {
+            resourceFilesLoadingEl.style.display = 'block';
+            try {
+                const response = await fetch('/get_resource_files');
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                resourceFilesListEl.innerHTML = ''; 
+                if (data.files && data.files.length > 0) {
+                    data.files.forEach(file => {
+                        const li = document.createElement('li');
+                        li.textContent = file;
+                        resourceFilesListEl.appendChild(li);
+                    });
+                } else {
+                    resourceFilesListEl.innerHTML = '<li>No resource files found.</li>';
+                }
+            } catch (error) {
+                console.error('Error loading resource files:', error);
+                resourceFilesListEl.innerHTML = '<li>Error loading files.</li>';
+            } finally {
+                resourceFilesLoadingEl.style.display = 'none';
+            }
+        }
+
+        async function loadFeedbackHistory() {
+            historyLoadingEl.style.display = 'block';
+            historyListEl.innerHTML = ''; // Clear current list
+            try {
+                const response = await fetch('/history');
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const historyData = await response.json();
+                console.log('History data:', historyData);
+                
+                if (historyData && historyData.length > 0) {
+                    historyData.forEach(item => { // Assumes server sends most recent first
+                        const li = document.createElement('li');
+                        // Store the full item data for retrieval on click
+                        li.dataset.historyItem = JSON.stringify(item); 
+                        
+                        const querySpan = document.createElement('span');
+                        querySpan.className = 'history-query';
+                        querySpan.textContent = item.query;
+                        
+                        const answerSnippetSpan = document.createElement('span');
+                        answerSnippetSpan.className = 'history-answer-snippet';
+                        let answerSnippet = item.answer || "N/A";
+                        if (answerSnippet.length > 100) answerSnippet = answerSnippet.substring(0, 97) + "...";
+                        answerSnippetSpan.textContent = answerSnippet;
+
+                        li.appendChild(querySpan);
+                        li.appendChild(answerSnippetSpan);
+                        
+                        li.addEventListener('click', () => {
+                            const fullItemData = JSON.parse(li.dataset.historyItem);
+                            // Reconstruct a 'data' object similar to /query response for display
+                            const displayData = {
+                                query: fullItemData.query,
+                                answer: fullItemData.answer,
+                                confidence: fullItemData.confidence, // Will be undefined/null from CSV, so shows N/A
+                                evaluation: fullItemData.evaluation 
+                                // Removed other fields not needed for display
+                            };
+                            displayCurrentQueryResults(displayData, true);
+                            document.getElementById('chatArea').scrollTop = 0;
+                        });
+                        historyListEl.appendChild(li); // Append, server sends in reverse chronological
+                    });
+                } else {
+                    historyListEl.innerHTML = '<li>No history found.</li>';
+                }
+            } catch (error) {
+                console.error('Error loading feedback history:', error);
+                historyListEl.innerHTML = '<li>Error loading history.</li>';
+            } finally {
+                historyLoadingEl.style.display = 'none';
+            }
+        }
+
+
+        function displayCurrentQueryResults(data, isFromHistory = false) {
+            currentQueryDisplayEl.style.display = 'block';
+            
+            currentQuestionTextEl.textContent = data.query || 'N/A';
+            answerDisplayEl.textContent = data.answer || 'N/A';
+            // For history items, confidence might not be present unless explicitly added
+            confidenceDisplayEl.textContent = data.confidence !== undefined && data.confidence !== null ? data.confidence.toFixed(2) : 'N/A';
+
+            if (data.evaluation && Object.keys(data.evaluation).length > 0) {
+                evaluationDisplayEl.textContent = JSON.stringify(data.evaluation, null, 2);
+                evaluationContainerEl.style.display = 'block';
+            } else {
+                evaluationDisplayEl.textContent = '';
+                evaluationContainerEl.style.display = 'none';
+            }
+            
+            if (!isFromHistory) {
+                const chatArea = document.getElementById('chatArea');
+                chatArea.scrollTop = chatArea.scrollHeight;
+            }
+        }
+        
+        function clearMiddlePanelError() {
+             if (answerDisplayEl.textContent.startsWith("Error:")) {
+                answerDisplayEl.textContent = "";
+             }
+        }
+
+        function displayError(message) {
+            errorMessageEl.textContent = message;
+            errorMessageEl.style.display = 'block';
+        }
+
+        function hideError() {
+            errorMessageEl.style.display = 'none';
+        }
+
+        queryFormEl.addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const question = questionTextareaEl.value;
+
+            if (!question.trim()) {
+                displayError("Please enter a question.");
+                return;
+            }
+
+            loadingMessageEl.style.display = 'block';
+            submitButtonEl.disabled = true;
+            hideError();
+            clearMiddlePanelError();
+
+            try {
+                const payload = { question: question, evaluate: true };
+                const response = await fetch('/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: "Failed to parse server error." }));
+                    throw new Error(errorData.error || `Server error: ${response.status}`);
+                }
+
+                const data = await response.json();
+                displayCurrentQueryResults(data); 
+                questionTextareaEl.value = ''; 
+                loadFeedbackHistory(); // Refresh history after a new query
+            } catch (error) {
+                console.error('Error submitting query:', error);
+                displayError(`Query failed: ${error.message}`);
+                currentQueryDisplayEl.style.display = 'block';
+                currentQuestionTextEl.textContent = question;
+                answerDisplayEl.textContent = `Error: ${error.message}`;
+                confidenceDisplayEl.textContent = 'N/A';
+                evaluationContainerEl.style.display = 'none';
+            } finally {
+                loadingMessageEl.style.display = 'none';
+                submitButtonEl.disabled = false;
+            }
+        });
+
+        // Initial load
+        loadResourceFiles();
+        loadFeedbackHistory(); // Load history on page start
+        currentQueryDisplayEl.style.display = 'none'; 
+    </script>
+</body>
+</html>
