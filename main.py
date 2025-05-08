@@ -100,9 +100,13 @@ def get_history():
         simplified_history = []
         for record in rag_system.feedback_history:
             # print(record.get("query"), record.get("answer"), record.get("reasoning_trace").split('->')[-1])  # Debug print
+            CONFIDENCE = record.get("reasoning_trace").split('->')[-1] if record.get("reasoning_trace") else 0
+            if 'Confidence Score' not in CONFIDENCE:
+                CONFIDENCE = 0
             simplified_history.append({
-                "question": record.get("query"),  # Use .get for safety
-                "answer": record.get("answer")
+                "query": record.get("query"),  # UPDATED: Key changed from "question" to "query"
+                "answer": record.get("answer"),
+                "confidence": CONFIDENCE
             })
         
         # The history is typically shown in reverse chronological order (newest first)
@@ -139,10 +143,10 @@ def handle_query():
         return jsonify({"error": "Request must be JSON"}), 400
 
     data = request.get_json()
-    question = data.get('question')
-    if not question:
-        current_logger.warning("Invalid request to /query: Missing 'question' in request body.")
-        return jsonify({"error": "Missing 'question' in request body"}), 400
+    query_text = data.get('query') # UPDATED: Expected key is now 'query'
+    if not query_text:
+        current_logger.warning("Invalid request to /query: Missing 'query' in request body.") # UPDATED: Message
+        return jsonify({"error": "Missing 'query' in request body"}), 400 # UPDATED: Message
 
     # Optional: Get parameters from request
     top_k = data.get('top_k', 5)
@@ -150,12 +154,12 @@ def handle_query():
     request_eval = data.get('evaluate', False)
     generate_graph = data.get('generate_graph', True)
 
-    current_logger.info(f"Received API query: '{question}' (top_k={top_k}, max_hops={max_hops}, eval={request_eval}, graph={generate_graph})")
+    current_logger.info(f"Received API query: '{query_text}' (top_k={top_k}, max_hops={max_hops}, eval={request_eval}, graph={generate_graph})")
 
     try:
         # Call the process_query method
         result_dict = rag_system.process_query(
-            question=question,
+            query=query_text, # UPDATED: Parameter name is 'query'
             top_k=top_k,
             max_hops=max_hops,
             request_evaluation=request_eval,
@@ -164,7 +168,7 @@ def handle_query():
 
         # Construct the API response
         api_response = {
-            "query": question,
+            "query": query_text, # UPDATED: Value comes from query_text
             "answer": result_dict.get('final_answer', 'Error: No answer generated.'),
             "source_info": result_dict.get('source_info', ''),
             "confidence": result_dict.get('confidence_score'),
@@ -176,7 +180,7 @@ def handle_query():
         return jsonify(api_response)
 
     except Exception as e:
-        current_logger.exception(f"API Error during RAG processing for query '{question}': {e}")
+        current_logger.exception(f"API Error during RAG processing for query '{query_text}': {e}")
         return jsonify({"error": f"An internal error occurred processing your query: {str(e)}"}), 500
 
 

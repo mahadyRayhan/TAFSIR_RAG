@@ -234,9 +234,9 @@ class TafsirRAG:
             current_node_name = f"n{node_counter}" # Stores the name of the current node
             final_node_created = False  # Flag to track if the final node was added
 
-            start_query = query_history[0] if query_history else "Initial Query (N/A)"
+            start_query_text = query_history[0] if query_history else "Initial Query (N/A)"
             # Ensure label is not excessively long
-            start_label = f"Start\nQuery:\n{start_query[:150]}{'...' if len(start_query)>150 else ''}"
+            start_label = f"Start\nQuery:\n{start_query_text[:150]}{'...' if len(start_query_text)>150 else ''}"
             dot.node(current_node_name, start_label)
             node_counter += 1
 
@@ -251,8 +251,8 @@ class TafsirRAG:
                 if step.startswith("--- Hop"):
                     hop_num = int(step.split(" ")[2]) if len(step.split(" ")) > 2 else hop_num + 1
                     current_query_index += 1
-                    query_text = query_history[current_query_index] if current_query_index < len(query_history) else f"Query for Hop {hop_num} (N/A)"
-                    query_label = f"Hop {hop_num}\nQuery:\n{query_text[:150]}{'...' if len(query_text)>150 else ''}"
+                    query_text_for_hop = query_history[current_query_index] if current_query_index < len(query_history) else f"Query for Hop {hop_num} (N/A)"
+                    query_label = f"Hop {hop_num}\nQuery:\n{query_text_for_hop[:150]}{'...' if len(query_text_for_hop)>150 else ''}"
 
                     query_node_name = f"n{node_counter}"
                     dot.node(query_node_name, query_label, fillcolor='lightgreen')
@@ -547,7 +547,7 @@ class TafsirRAG:
             # (The rest of the build logic from above will handle it)
 
         if self.vector_db_df is None or self.vector_db_df.empty:
-            self.logger.critical("CRITICAL ERROR: CSV Vector database could not be loaded or built successfully. The system may not be able to answer questions.")
+            self.logger.critical("CRITICAL ERROR: CSV Vector database could not be loaded or built successfully. The system may not be able to answer queries.")
             # Depending on strictness, you might want to raise an error here to halt initialization
             # raise ValueError("Vector database could not be loaded or built.")
         else:
@@ -598,7 +598,7 @@ class TafsirRAG:
 
         # --- 2. Embedding Generation (Batched) ---
         chunk_texts = [info["chunk_text"] for info in all_chunks_info]
-        chunk_texts = chunk_texts[:50]
+        # chunk_texts = chunk_texts[:50] # REMOVE THIS LINE FOR FULL PROCESSING
         self.logger.info(f"Generating embeddings for {len(chunk_texts)} chunks...")
         all_embeddings = self._batch_get_embeddings(chunk_texts, task_type="RETRIEVAL_DOCUMENT")
 
@@ -699,7 +699,8 @@ class TafsirRAG:
                         # Split text into chunks
                         try:
                              chunks = text_splitter.split_text(page_text)
-                             for chunk_num, chunk_text in enumerate(chunks[:300]):
+                             # for chunk_num, chunk_text in enumerate(chunks[:300]): # REMOVE THIS LIMIT FOR FULL PROCESSING
+                             for chunk_num, chunk_text in enumerate(chunks):
                                  cleaned_chunk = chunk_text.strip()
                                  if len(cleaned_chunk) >= 20: # Filter out very small chunks
                                      all_chunks_info.append({
@@ -728,8 +729,8 @@ class TafsirRAG:
             self.logger.info(f"Saving vector database DataFrame to {file_path}...")
             df_copy = df.copy()
             # Convert numpy arrays to lists for CSV compatibility
-            if 'embeddings' in df_copy.columns and isinstance(df_copy['embeddings'].iloc[0], np.ndarray):
-                df_copy['embeddings'] = df_copy['embeddings'].apply(lambda x: x.tolist())
+            if 'embeddings' in df_copy.columns and not df_copy.empty and isinstance(df_copy['embeddings'].iloc[0], np.ndarray):
+                df_copy['embeddings'] = df_copy['embeddings'].apply(lambda x: x.tolist() if isinstance(x, np.ndarray) else x)
             df_copy.to_csv(file_path, index=False)
             self.logger.info(f"DataFrame successfully saved to {file_path}")
         except Exception as e:
@@ -827,8 +828,14 @@ class TafsirRAG:
 
         # Stack database embeddings (Potential memory issue for very large DBs)
         try:
-             database_embeddings = np.stack(self.vector_db_df["embeddings"].to_numpy())
-             if len(database_embeddings) == 0:
+             # Filter out any rows where 'embeddings' might be an empty array or not a 1D array
+             valid_embeddings_series = self.vector_db_df["embeddings"][self.vector_db_df["embeddings"].apply(lambda x: isinstance(x, np.ndarray) and x.ndim == 1 and x.size > 0)]
+             if valid_embeddings_series.empty:
+                 self.logger.warning("No valid embeddings found in the database to stack.")
+                 return []
+             database_embeddings = np.stack(valid_embeddings_series.to_numpy())
+
+             if len(database_embeddings) == 0: # Should be caught by valid_embeddings_series.empty
                   self.logger.warning("Database embeddings stack is empty.")
                   return []
              # Dimension check
@@ -839,7 +846,8 @@ class TafsirRAG:
              self.logger.error(f"Error stacking database embeddings: {stack_err}. Is the embedding data valid?")
              # Log a sample embedding for debugging
              if len(self.vector_db_df) > 0:
-                  self.logger.debug(f"Sample embedding type: {type(self.vector_db_df['embeddings'].iloc[0])}, shape: {self.vector_db_df['embeddings'].iloc[0].shape if isinstance(self.vector_db_df['embeddings'].iloc[0], np.ndarray) else 'N/A'}")
+                  sample_emb = self.vector_db_df['embeddings'].iloc[0]
+                  self.logger.debug(f"Sample embedding type: {type(sample_emb)}, shape: {sample_emb.shape if isinstance(sample_emb, np.ndarray) else 'N/A'}")
              return []
 
         # Calculate cosine similarities
@@ -855,15 +863,19 @@ class TafsirRAG:
         if actual_top_k <= 0: return []
 
         # Get indices of top_k largest similarities
-        top_indices = np.argsort(similarities)[-actual_top_k:][::-1]
+        top_indices_in_filtered = np.argsort(similarities)[-actual_top_k:][::-1]
+        
+        # Map these indices back to the original DataFrame's indices if filtering occurred
+        original_indices = valid_embeddings_series.iloc[top_indices_in_filtered].index
 
         # Prepare results
         results = []
-        relevant_rows = self.vector_db_df.iloc[top_indices]
+        relevant_rows = self.vector_db_df.loc[original_indices]
         for i, (_, row) in enumerate(relevant_rows.iterrows()):
-            similarity_score = similarities[top_indices[i]]
+            # Similarity score corresponds to the order in 'top_indices_in_filtered' applied to 'similarities'
+            similarity_score = similarities[top_indices_in_filtered[i]]
             results.append({
-                "id": f"chunk_{top_indices[i]}", # Use index as ID for CSV
+                "id": f"chunk_{original_indices[i]}", # Use original index as ID for CSV
                 "text": row['chunk_text'],
                 "metadata": {
                     "document_name": row.get('document_name', 'Unknown'),
@@ -872,7 +884,6 @@ class TafsirRAG:
                 },
                 "score": float(similarity_score) # Ensure score is float
             })
-
         return results
 
     def _get_relevant_chunks_chroma(self, query_embedding: List[float], top_k: int = 5) -> List[Dict[str, Any]]:
@@ -1196,14 +1207,14 @@ class TafsirRAG:
 
         # In _expand_query method:
         expansion_prompt = f"""You are an expert search query generator specializing in Islamic texts, specifically Tafsir Ibn Kathir's commentary on the Quran.
-        Generate {num_expansions} alternative search queries in English for the following original English question.
+        Generate {num_expansions} alternative search queries in English for the following original English query.
         The goal is to capture the same information need using different English phrasing, keywords, Quranic concepts (described in English), references to Surahs or Ayahs (e.g., "Chapter 2, Verse 10"), and terminology related to Quranic exegesis (explained in English if not common knowledge).
 
-        Original Question:
+        Original Query:
         "{query}"
 
         Instructions:
-        1.  Understand the core intent of the original question regarding the Quranic commentary.
+        1.  Understand the core intent of the original query regarding the Quranic commentary.
         2.  Create {num_expansions} distinct alternative queries *in English*.
         3.  Focus on concepts (e.g., "the concept of God's oneness," "reasons for revelation," "abrogation"), events, or interpretations discussed in the Tafsir related to specific Quranic verses or chapters if applicable. Refer to Surahs by common English names (e.g., "The Cow" for Al-Baqarah, or "Chapter 2") and verses by number.
         4.  Return ONLY the alternative queries, one per line. Do not include numbering, explanations, or the original query.
@@ -1249,9 +1260,9 @@ class TafsirRAG:
         self.logger.debug(f"Context Snippet Provided for Reasoning:\n{context_snippet if context_snippet else 'None'}...\n")
 
         # --- Stricter Prompt with Clearer Instructions ---
-        prompt = f"""You are a precise reasoning engine for a RAG system answering questions about Tafsir Ibn Kathir's commentary on the Quran. Your SOLE task is to determine the *next action* based on the Original Question and the Accumulated Context retrieved so far.
+        prompt = f"""You are a precise reasoning engine for a RAG system answering queries about Tafsir Ibn Kathir's commentary on the Quran. Your SOLE task is to determine the *next action* based on the Original Query and the Accumulated Context retrieved so far.
 
-            Original Question:
+            Original Query:
             "{original_query}"
 
             Accumulated Context (from previous search steps):
@@ -1265,12 +1276,12 @@ class TafsirRAG:
             --- END HISTORY ---
 
             Instructions:
-            1. Analyze the Original Question and the Accumulated Context. Focus on whether the context *directly and completely* answers the Original Question.
+            1. Analyze the Original Query and the Accumulated Context. Focus on whether the context *directly and completely* answers the Original Query.
             2. Consider the search queries used so far (Reasoning History).
             3. Decide the single next action:
-                a. If the Accumulated Context contains enough information to *fully answer* the Original Question: Output *exactly* this line and nothing else:
+                a. If the Accumulated Context contains enough information to *fully answer* the Original Query: Output *exactly* this line and nothing else:
                 ANSWER_COMPLETE
-                b. If the Accumulated Context is insufficient or partially addresses the question, identify the *single most important missing piece of information* or the *next logical sub-question* needed to fully answer the Original Question. Formulate a *concise, specific search query* for this missing piece. Output *exactly* in this format (single line, nothing else):
+                b. If the Accumulated Context is insufficient or partially addresses the query, identify the *single most important missing piece of information* or the *next logical sub-query* needed to fully answer the Original Query. Formulate a *concise, specific search query* for this missing piece. Output *exactly* in this format (single line, nothing else):
                 NEXT_QUERY: [Your concise search query here]
                 c. If there was an error in retrieving context or the context is clearly irrelevant, and previous attempts haven't helped, output:
                     ANSWER_COMPLETE
@@ -1279,7 +1290,7 @@ class TafsirRAG:
             - Your entire response MUST be only ONE line.
             - It must be EITHER "ANSWER_COMPLETE" OR "NEXT_QUERY: [your query]".
             - Do NOT add explanations, introductions, apologies, or any other text.
-            - Do NOT answer the Original Question yourself. Only decide the next action.
+            - Do NOT answer the Original Query yourself. Only decide the next action.
 
             Decision:"""
 
@@ -1311,11 +1322,11 @@ class TafsirRAG:
                  value = ""
                  self.logger.info(">>> Reasoning Decision: ANSWER_COMPLETE")
              elif match_next:
-                 new_query = match_next.group(1).strip()
-                 if new_query:
+                 new_query_text = match_next.group(1).strip()
+                 if new_query_text:
                      action = "NEXT_QUERY"
-                     value = new_query
-                     self.logger.info(f">>> Reasoning Decision: NEXT_QUERY -> '{new_query}'")
+                     value = new_query_text
+                     self.logger.info(f">>> Reasoning Decision: NEXT_QUERY -> '{new_query_text}'")
                  else:
                      # LLM generated NEXT_QUERY but the query was empty
                      action = "ANSWER_COMPLETE"
@@ -1367,7 +1378,7 @@ class TafsirRAG:
         existing_texts = set()
         for ctx_str in accumulated_context_list:
              # Extract text content, handling potential formatting like "[Source: ...] Text"
-             match = re.search(r'\]:\s*(.*)', ctx_str, re.DOTALL)
+             match = re.search(r'\]\s*(.*)', ctx_str, re.DOTALL) # Regex was r'\]:\s*(.*)' - colon might not be there always
              text_content = match.group(1).strip() if match else ctx_str.strip()
              existing_texts.add(text_content) # Might need refinement based on actual context format
 
@@ -1419,7 +1430,7 @@ class TafsirRAG:
             # In _manage_context method:
             summary_prompt = f"""Summarize the following context section from Tafsir Ibn Kathir in English.
                 Preserve all key interpretations of Quranic verses, references to specific Quranic chapters (e.g., "Chapter 2" or "Surah Al-Baqarah") and verse numbers, explanations of important terms (using English descriptions), relevant narrations (such as prophetic traditions or statements from early Muslims, summarizing their content in English), legal rulings derived, and names of scholars or figures mentioned.
-                Be concise but retain the essential information in English, needed to answer questions based on this section of the Tafsir.
+                Be concise but retain the essential information in English, needed to answer queries based on this section of the Tafsir.
 
                 Context Section to Summarize:
                 ---
@@ -1464,23 +1475,23 @@ class TafsirRAG:
 
         if not final_context_str or final_context_str.strip() == "No relevant context found.":
              self.logger.warning("No context available for final answer generation.")
-             return "Based on the information retrieved, I could not find a specific answer to your question."
+             return "Based on the information retrieved, I could not find a specific answer to your query." # Changed from question
 
         # --- Prompt explicitly designed for Multihop Synthesis ---
         prompt = f"""You are an expert assistant knowledgeable about Tafsir Ibn Kathir's commentary on the Quran.
-        Your task is to synthesize a final, comprehensive answer to the user's *Original Question* using *only* the information found within the *Accumulated Context* provided below. The context comes from potentially multiple search steps and may include summaries.
+        Your task is to synthesize a final, comprehensive answer to the user's *Original Query* using *only* the information found within the *Accumulated Context* provided below. The context comes from potentially multiple search steps and may include summaries.
 
         Instructions:
-        1.  Carefully read the *Original Question*.
+        1.  Carefully read the *Original Query*.
         2.  Carefully read *all sections* within the Accumulated Context, noting any summaries indicated by "[SUMMARIZED CONTEXT]:". This context is from Tafsir Ibn Kathir.
-        3.  Synthesize a single, coherent answer that directly and fully addresses the *Original Question* based on Ibn Kathir's explanations. Combine relevant pieces of information accurately.
+        3.  Synthesize a single, coherent answer that directly and fully addresses the *Original Query* based on Ibn Kathir's explanations. Combine relevant pieces of information accurately.
         4.  Base your answer *strictly* on the text present in the Accumulated Context. Do *not* add external information, interpretations, or opinions not explicitly stated. Do not make assumptions or guess.
-        5.  If the Accumulated Context *definitively lacks* the information needed to fully answer the Original Question (after reviewing all sections), state clearly: "Based on the provided context, the specific information about [missing aspect] could not be found." Do not apologize excessively.
+        5.  If the Accumulated Context *definitively lacks* the information needed to fully answer the Original Query (after reviewing all sections), state clearly: "Based on the provided context, the specific information about [missing aspect] could not be found." Do not apologize excessively.
         6.  Structure the answer clearly and logically. Start directly with the answer.
         7.  Do NOT refer to the search process (e.g., "Based on the retrieved context..."). Just provide the synthesized answer based *on* the context.
         8.  Do NOT include the source markers (like `[Source: ...]`) in your final answer.
 
-        Original Question:
+        Original Query:
         "{original_query}"
 
         Accumulated Context:
@@ -1503,7 +1514,7 @@ class TafsirRAG:
 
     # --- Evaluation and Feedback ---
 
-    def evaluate_response(self, question: str, answer: str, retrieved_context_str: str, ground_truth: Optional[str] = None) -> Dict[str, Any]:
+    def evaluate_response(self, query: str, answer: str, retrieved_context_str: str, ground_truth: Optional[str] = None) -> Dict[str, Any]:
         """
         Evaluate the quality of the generated answer using LLM-based metrics.
         Optionally compares against ground truth if provided.
@@ -1511,12 +1522,12 @@ class TafsirRAG:
         self.logger.info("Evaluating generated response...")
         metrics = {}
 
-        # 1. Relevance Score (Answer vs. Question)
+        # 1. Relevance Score (Answer vs. Query)
         try:
-            relevance_prompt = f"""Rate the relevance of the Answer to the Question on a scale of 1 (Not relevant) to 5 (Highly relevant).
-            Consider if the answer directly addresses the core intent of the question.
+            relevance_prompt = f"""Rate the relevance of the Answer to the Query on a scale of 1 (Not relevant) to 5 (Highly relevant).
+            Consider if the answer directly addresses the core intent of the query.
 
-            Question: "{question}"
+            Query: "{query}"
             Answer: "{answer}"
 
             Output format (JSON): {{"relevance_rating": [1-5], "relevance_explanation": "[Brief explanation]"}}
@@ -1566,9 +1577,9 @@ class TafsirRAG:
         # 3. Ground Truth Comparison (if available) - Basic Similarity or LLM Eval
         if ground_truth:
             try:
-                gt_prompt = f"""Compare the Generated Answer to the Ground Truth Answer for the given Question. Rate the similarity/correctness on a scale of 1 (Very different/Incorrect) to 5 (Highly similar/Correct).
+                gt_prompt = f"""Compare the Generated Answer to the Ground Truth Answer for the given Query. Rate the similarity/correctness on a scale of 1 (Very different/Incorrect) to 5 (Highly similar/Correct).
 
-                Question: "{question}"
+                Query: "{query}"
                 Ground Truth Answer: "{ground_truth}"
                 Generated Answer: "{answer}"
 
@@ -1681,7 +1692,7 @@ class TafsirRAG:
         """
         feedback_record = {
             "timestamp": pd.Timestamp.now().isoformat(), # Use ISO format string
-            "query": query,
+            "query": query, # This is already "query" and correct
             "answer": answer,
             "hop_count": hop_count,
             "final_context_length": len(final_context),
@@ -1720,10 +1731,10 @@ class TafsirRAG:
 
     # --- Main Query Processing ---
 
-    def process_query(self, question: str, top_k: int = 5, max_hops: int = 3,
+    def process_query(self, query: str, top_k: int = 5, max_hops: int = 3, # Changed from 'question' to 'query'
                       use_query_expansion: bool = False,
                       request_evaluation: bool = True,
-                      generate_graph: bool = True, # New flag
+                      generate_graph: bool = True, 
                       record_user_feedback: Optional[Dict[str, Any]] = None
                       ) -> Dict[str, Any]:
         """
@@ -1731,7 +1742,7 @@ class TafsirRAG:
         Includes options for graph generation and formatted reasoning.
 
         Args:
-            question: The user's question.
+            query: The user's query.
             top_k: Number of chunks to retrieve per hop.
             max_hops: Maximum number of retrieval/reasoning hops.
             use_query_expansion: If True, expands the initial query.
@@ -1749,7 +1760,7 @@ class TafsirRAG:
         """
         process_start_time = time.time()
         self.logger.info(f"\n--- Starting Query Process ---")
-        self.logger.info(f"Original Question: '{question}'")
+        self.logger.info(f"Original Query: '{query}'") # Changed from 'Original Question'
         self.logger.info(f"Config: top_k={top_k}, max_hops={max_hops}, expansion={use_query_expansion}, eval={request_evaluation}")
 
         # --- Initialization ---
@@ -1771,70 +1782,59 @@ class TafsirRAG:
                 "debug_info": {"processing_time_s": time.time() - process_start_time, "hops_taken": 0, "final_context_length": 0}
             }
 
-        original_query = question
+        original_query_param = query # Use the input parameter 'query'
         # Initial query transformation
-        current_query = self._transform_query(original_query)
-        # search_query_history = [current_query] # Start with the initial transformed query
-
+        current_query_text = self._transform_query(original_query_param)
+        
         # Optional Query Expansion for the first hop
-        queries_to_try = [current_query]
+        queries_to_try = [current_query_text]
         if use_query_expansion:
             self.logger.info("Applying query expansion for the initial retrieval...")
-            queries_to_try = self._expand_query(current_query, num_expansions=2) # Get 1 original + 2 expansions
+            queries_to_try = self._expand_query(current_query_text, num_expansions=2) # Get 1 original + 2 expansions
 
 
         accumulated_context_list = [] # Stores context strings from each hop/summary
         reasoning_trace = ["START"] # Track the LLM's reasoning steps
-        search_query_history = [current_query] # Start with the initial transformed query
+        search_query_history = [current_query_text] # Start with the initial transformed query
         hops_taken = 0
         all_retrieved_chunks_this_session = [] # Keep track of all unique chunks retrieved
 
 
         # --- Multihop Loop ---
-        for hop in range(max_hops):
-            hops_taken = hop + 1
+        for hop_count_iter in range(max_hops): # Renamed 'hop' to 'hop_count_iter' to avoid conflict
+            hops_taken = hop_count_iter + 1
             self.logger.info(f"\n--- Hop {hops_taken}/{max_hops} ---")
             reasoning_trace.append(f"--- Hop {hops_taken} ---")
 
-            # --- Retrieval ---
-            # If using expansion, might retrieve for multiple queries here, then merge/rank results.
-            # Simple approach for now: Use the single 'current_query' determined by reasoning.
-            # If it's the first hop AND expansion is enabled, retrieve for all expanded queries?
-            # Let's stick to the single current_query for simplicity in the loop.
-            # Expansion primarily helps the *first* query generation or reasoning.
-
-            if not current_query: # Should not happen if reasoning works, but safety check
+            if not current_query_text: 
                  self.logger.warning("Current query is empty. Stopping hop.")
                  reasoning_trace.append(f"Hop {hops_taken}: Error - Query is empty. Breaking loop.")
                  break
 
-            self.logger.info(f"Retrieving context for query: '{current_query}'")
-            search_query_history.append(current_query)
-            reasoning_trace.append(f"Hop {hops_taken}: Retrieving with query -> '{current_query}'")
+            self.logger.info(f"Retrieving context for query: '{current_query_text}'")
+            if current_query_text not in search_query_history: # Add if it's a new query from reasoning
+                 search_query_history.append(current_query_text)
+            reasoning_trace.append(f"Hop {hops_taken}: Retrieving with query -> '{current_query_text}'")
 
-            retrieved_chunks = self._get_relevant_chunks(current_query, top_k=top_k)
+            retrieved_chunks = self._get_relevant_chunks(current_query_text, top_k=top_k)
 
             if not retrieved_chunks:
                 self.logger.warning(f"Retrieval returned no relevant chunks for hop {hops_taken}.")
                 reasoning_trace.append(f"Hop {hops_taken}: Retrieval yielded no results.")
-                # If first hop fails completely, maybe stop early?
-                if hop == 0:
+                if hop_count_iter == 0:
                     self.logger.warning("Initial retrieval failed. Aborting multi-hop.")
                     reasoning_trace.append("Hop 1: Initial retrieval failed. Stopping.")
-                    break # Exit loop early if first hop yields nothing
-                # Otherwise, let reasoning decide based on existing context (if any)
+                    break 
             else:
                  self.logger.info(f"Retrieved {len(retrieved_chunks)} chunks for hop {hops_taken}.")
                  reasoning_trace.append(f"Hop {hops_taken}: Retrieved {len(retrieved_chunks)} chunk(s). Top score: {retrieved_chunks[0]['score']:.4f}")
-                 all_retrieved_chunks_this_session.extend(retrieved_chunks) # Add to session total
+                 all_retrieved_chunks_this_session.extend(retrieved_chunks) 
 
 
-            # --- Context Management (Deduplication & Size Control) ---
-            # Pass the currently accumulated list and the newly retrieved chunks
             accumulated_context_list, added_unique_chunks = self._manage_context(
                  accumulated_context_list,
-                 retrieved_chunks, # Pass the list of dicts
-                 max_tokens=7000 # Leave buffer for prompt instructions, query, etc.
+                 retrieved_chunks, 
+                 max_tokens=7000 
             )
             if added_unique_chunks:
                  reasoning_trace.append(f"Hop {hops_taken}: Added {len(added_unique_chunks)} unique chunks to context.")
@@ -1842,73 +1842,61 @@ class TafsirRAG:
                  reasoning_trace.append(f"Hop {hops_taken}: No new unique chunks added to context.")
 
 
-            # Combine all context gathered *so far* for the reasoning step
-            # Use a distinct separator for the reasoning prompt
             full_accumulated_text_for_reasoning = "\n\n==== CONTEXT FROM HOP/SUMMARY SEPARATOR ====\n\n".join(accumulated_context_list)
 
-            # --- Reasoning ---
             action, value = self._reason_and_refine_query(
-                original_query,
+                original_query_param, # Use the initial query for reasoning goal
                 full_accumulated_text_for_reasoning,
-                search_query_history, # Pass history of search terms used
+                search_query_history, 
                 hops_taken
             )
             reasoning_trace.append(f"Hop {hops_taken}: Reasoning result -> Action='{action}', Value='{value[:100]}...'")
 
-            # --- Process Reasoning Outcome ---
             if action == "ANSWER_COMPLETE":
                 self.logger.info("Reasoning concluded: Sufficient context likely found or cannot improve.")
-                reasoning_trace.append("Hop {hops_taken}: Reasoning -> ANSWER_COMPLETE. Proceeding to final answer.")
-                break # Exit the loop to proceed to final generation
+                reasoning_trace.append(f"Hop {hops_taken}: Reasoning -> ANSWER_COMPLETE. Proceeding to final answer.")
+                break 
             elif action == "NEXT_QUERY":
-                # Update query for the *next* iteration, apply transformations
                 next_raw_query = value
-                current_query = self._transform_query(next_raw_query)
-                reasoning_trace.append(f"Hop {hops_taken}: Reasoning -> NEXT_QUERY = '{current_query}'")
-                # Loop continues...
+                current_query_text = self._transform_query(next_raw_query) # Update current_query_text for the next loop
+                reasoning_trace.append(f"Hop {hops_taken}: Reasoning -> NEXT_QUERY = '{current_query_text}'")
             elif action == "ERROR":
                  self.logger.error(f"Error during reasoning step: {value}. Stopping multihop process.")
                  reasoning_trace.append(f"Hop {hops_taken}: Reasoning -> ERROR: {value}. Proceeding to final answer with current context.")
-                 break # Exit loop and proceed to final generation with current context
-            else: # Unexpected action
+                 break 
+            else: 
                  self.logger.warning(f"Unexpected action '{action}' from reasoning step. Stopping.")
                  reasoning_trace.append(f"Hop {hops_taken}: Reasoning -> UNEXPECTED ACTION '{action}'. Proceeding to final answer.")
-                 break # Exit loop
+                 break 
 
-        # --- End of Loop ---
         if hops_taken == max_hops and action != "ANSWER_COMPLETE":
              self.logger.info("Max hops reached. Proceeding to final answer generation.")
              reasoning_trace.append(f"Max hops ({max_hops}) reached.")
 
         reasoning_trace.append("--- Final Answer Generation ---")
 
-        # --- Final Answer Generation ---
-        final_answer = self._generate_final_answer(original_query, accumulated_context_list)
+        final_answer = self._generate_final_answer(original_query_param, accumulated_context_list)
 
 
-        # --- Confidence & Evaluation ---
         confidence_score = None
         evaluation_metrics = None
         final_context_str = "\n\n==== CONTEXT FROM HOP/SUMMARY SEPARATOR ====\n\n".join(accumulated_context_list)
 
         if not final_answer.startswith("LLM_ERROR:") and final_context_str:
-            confidence_score = self._assess_answer_confidence(final_answer, final_context_str, original_query)
+            confidence_score = self._assess_answer_confidence(final_answer, final_context_str, original_query_param)
             reasoning_trace.append(f"Confidence Score: {confidence_score:.2f}" if confidence_score is not None else "Confidence Score: N/A")
 
             if request_evaluation:
-                 evaluation_metrics = self.evaluate_response(original_query, final_answer, final_context_str)
+                 evaluation_metrics = self.evaluate_response(original_query_param, final_answer, final_context_str)
                  reasoning_trace.append(f"Evaluation Metrics: {evaluation_metrics}")
 
         formatted_reasoning = self._format_reasoning_trace(reasoning_trace)
         
-        # --- NEW: Generate Graph ---
         graph_filename = None
         if generate_graph:
-            # Pass the actual queries used for retrieval (search_query_history)
             graph_filename = self._generate_hop_graph(reasoning_trace, search_query_history)
 
 
-        # --- Wrap Up ---
         process_end_time = time.time()
         processing_time = process_end_time - process_start_time
         self.logger.info(f"--- Query Process Finished ---")
@@ -1921,16 +1909,15 @@ class TafsirRAG:
              "queries_used": search_query_history,
              "final_context_length": len(final_context_str),
              "vector_db_type": self.vector_db_type,
-             "cache_hits_embedding": sum(1 for t in reasoning_trace if "Embedding cache HIT" in t), # Simple count
-             "cache_hits_llm": sum(1 for t in reasoning_trace if "LLM cache HIT" in t), # Simple count
-             "graph_filename": graph_filename # Add graph filename here
+             "cache_hits_embedding": sum(1 for t_trace in reasoning_trace if "Embedding cache HIT" in t_trace), 
+             "cache_hits_llm": sum(1 for t_trace in reasoning_trace if "LLM cache HIT" in t_trace), 
+             "graph_filename": graph_filename 
         }
 
-        # --- Record Feedback ---
         user_rating = record_user_feedback.get('rating') if record_user_feedback else None
         user_comment = record_user_feedback.get('comment') if record_user_feedback else None
         self.record_feedback(
-            query=original_query,
+            query=original_query_param, # Use original_query_param here
             answer=final_answer,
             hop_count=hops_taken,
             final_context=final_context_str,
@@ -1943,9 +1930,9 @@ class TafsirRAG:
         return {
             "final_answer": final_answer,
             "source_info": f"Synthesized from context retrieved over {hops_taken} hop(s) using {self.vector_db_type} DB.",
-            "reasoning_trace": reasoning_trace, # Still return raw trace if needed
-            "formatted_reasoning": formatted_reasoning, # Add formatted trace
+            "reasoning_trace": reasoning_trace, 
+            "formatted_reasoning": formatted_reasoning, 
             "confidence_score": confidence_score,
             "evaluation_metrics": evaluation_metrics,
-            "debug_info": debug_info # Contains graph filename now
+            "debug_info": debug_info 
         }

@@ -70,16 +70,16 @@
            border-bottom: 1px solid #ddd;
         }
         #queryFormContainer { padding: 15px 10px; background-color: #f0f2f5; flex-shrink: 0; }
-        #queryForm textarea {
+        #queryForm textarea { /* UPDATED: ID will change to 'query' */
             width: calc(100% - 22px); padding: 10px; border-radius: 18px;
             border: 1px solid #ccd0d5; min-height: 40px; resize: vertical;
             margin-bottom: 10px; font-size: 1em;
         }
-        #queryForm button { /* Style updated here */
+        #queryForm button { 
             background-color: #007bff; color: white; padding: 10px 15px;
             border: none; border-radius: 18px; cursor: pointer;
             font-size: 1em; transition: background-color 0.2s;
-            width: 100%; /* Applied user's requested style */
+            width: 100%; 
         }
         #queryForm button:hover { background-color: #0056b3; }
         #queryForm button:disabled { background-color: #bdc1c5; cursor: not-allowed; }
@@ -123,9 +123,7 @@
         <div class="panel middle-panel">
             <div id="chatArea">
                  <div id="currentQueryDisplay" style="display:none;">
-                    <h3>Question:</h3>
-                    <div id="currentQuestionText"></div>
-                    <div class="current-result-section"><h3>Answer:</h3><div id="answerDisplay"></div></div>
+                    <h3>Query:</h3> <div id="currentQueryText"></div> <div class="current-result-section"><h3>Answer:</h3><div id="answerDisplay"></div></div>
                     <div class="current-result-section"><h3>Confidence:</h3><div id="confidenceDisplay"></div></div>
                     <div class="current-result-section" id="evaluationContainer" style="display: none;">
                         <h3>Evaluation:</h3><pre id="evaluationDisplay"></pre>
@@ -136,8 +134,7 @@
                 <div id="loadingMessage" class="loading" style="display: none;">Processing...</div>
                 <div id="errorMessage" class="error-message" style="display: none;"></div>
                 <form id="queryForm">
-                    <textarea id="question" name="question" placeholder="Ask about Tafsir..."></textarea>
-                    <button type="submit" id="submitButton" style="width: 100%;">Send</button>
+                    <textarea id="queryInput" name="queryInput" placeholder="Ask about Tafsir..."></textarea> <button type="submit" id="submitButton" style="width: 100%;">Send</button>
                 </form>
             </div>
         </div>
@@ -156,7 +153,7 @@
         const resourceFilesLoadingEl = document.getElementById('resourceFilesLoading');
         
         const currentQueryDisplayEl = document.getElementById('currentQueryDisplay');
-        const currentQuestionTextEl = document.getElementById('currentQuestionText');
+        const currentQueryTextEl = document.getElementById('currentQueryText'); // UPDATED: Variable for new ID
         const answerDisplayEl = document.getElementById('answerDisplay');
         const confidenceDisplayEl = document.getElementById('confidenceDisplay');
         const evaluationContainerEl = document.getElementById('evaluationContainer');
@@ -166,12 +163,12 @@
         const errorMessageEl = document.getElementById('errorMessage');
         const submitButtonEl = document.getElementById('submitButton');
         const queryFormEl = document.getElementById('queryForm');
-        const questionTextareaEl = document.getElementById('question');
+        const queryTextareaEl = document.getElementById('queryInput'); // UPDATED: Variable for new textarea ID
 
         async function loadResourceFiles() {
             resourceFilesLoadingEl.style.display = 'block';
             try {
-                const response = await fetch('/get_resource_files');
+                const response = await fetch('/get_resource_files'); // This endpoint is not defined in main.py, assuming it exists or is for future use
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const data = await response.json();
                 resourceFilesListEl.innerHTML = ''; 
@@ -199,17 +196,15 @@
                 const response = await fetch('/history');
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const historyData = await response.json();
-                console.log('History data:', historyData);
                 
                 if (historyData && historyData.length > 0) {
-                    historyData.forEach(item => { // Assumes server sends most recent first
+                    historyData.forEach(item => { 
                         const li = document.createElement('li');
-                        // Store the full item data for retrieval on click
                         li.dataset.historyItem = JSON.stringify(item); 
                         
                         const querySpan = document.createElement('span');
                         querySpan.className = 'history-query';
-                        querySpan.textContent = item.query;
+                        querySpan.textContent = item.query; // Already correctly expecting item.query
                         
                         const answerSnippetSpan = document.createElement('span');
                         answerSnippetSpan.className = 'history-answer-snippet';
@@ -222,18 +217,31 @@
                         
                         li.addEventListener('click', () => {
                             const fullItemData = JSON.parse(li.dataset.historyItem);
-                            // Reconstruct a 'data' object similar to /query response for display
+                            // --- UPDATED SECTION TO PARSE PRE-PROCESSED CONFIDENCE ---
+                            // let confidenceValueForDisplay = 'N/A'; 
+                            // const confidenceDataFromServer = fullItemData.confidence; // This holds your pre-processed value
+
+                            // if (typeof confidenceDataFromServer === 'string' && confidenceDataFromServer.startsWith("Confidence Score:")) {
+                            //     const scoreMatch = confidenceDataFromServer.match(/(\d\.\d+)/);
+                            //     if (scoreMatch && scoreMatch[1]) {
+                            //         confidenceValueForDisplay = parseFloat(scoreMatch[1]);
+                            //     }
+                            // } else if (confidenceDataFromServer === 0 || confidenceDataFromServer === "0") {
+                            //     // If server sends integer 0 or string "0"
+                            //     confidenceValueForDisplay = 0.0; 
+                            // }
+                            // If it's any other string not matching "Confidence Score:", or undefined/null, it remains 'N/A'
+                            // --- END OF UPDATED SECTION ---
                             const displayData = {
-                                query: fullItemData.query,
+                                query: fullItemData.query, // Already correctly expecting fullItemData.query
                                 answer: fullItemData.answer,
-                                confidence: fullItemData.confidence, // Will be undefined/null from CSV, so shows N/A
+                                confidence: fullItemData.confidence, 
                                 evaluation: fullItemData.evaluation 
-                                // Removed other fields not needed for display
                             };
                             displayCurrentQueryResults(displayData, true);
                             document.getElementById('chatArea').scrollTop = 0;
                         });
-                        historyListEl.appendChild(li); // Append, server sends in reverse chronological
+                        historyListEl.appendChild(li); 
                     });
                 } else {
                     historyListEl.innerHTML = '<li>No history found.</li>';
@@ -250,10 +258,16 @@
         function displayCurrentQueryResults(data, isFromHistory = false) {
             currentQueryDisplayEl.style.display = 'block';
             
-            currentQuestionTextEl.textContent = data.query || 'N/A';
+            currentQueryTextEl.textContent = data.query || 'N/A'; 
             answerDisplayEl.textContent = data.answer || 'N/A';
-            // For history items, confidence might not be present unless explicitly added
-            confidenceDisplayEl.textContent = data.confidence !== undefined && data.confidence !== null ? data.confidence.toFixed(2) : 'N/A';
+            
+            // This display logic for confidence should now work correctly
+            if (typeof data.confidence === 'number' && !isNaN(data.confidence)) {
+                confidenceDisplayEl.textContent = data.confidence.toFixed(2);
+            } else {
+                // Handles 'N/A' string or other non-numeric values if they somehow get here
+                confidenceDisplayEl.textContent = (data.confidence !== undefined && data.confidence !== null) ? String(data.confidence) : 'N/A';
+            }
 
             if (data.evaluation && Object.keys(data.evaluation).length > 0) {
                 evaluationDisplayEl.textContent = JSON.stringify(data.evaluation, null, 2);
@@ -286,10 +300,10 @@
 
         queryFormEl.addEventListener('submit', async function(event) {
             event.preventDefault();
-            const question = questionTextareaEl.value;
+            const queryText = queryTextareaEl.value; // UPDATED: Variable name
 
-            if (!question.trim()) {
-                displayError("Please enter a question.");
+            if (!queryText.trim()) { // UPDATED: Variable name
+                displayError("Please enter a query."); // UPDATED: Message
                 return;
             }
 
@@ -299,7 +313,7 @@
             clearMiddlePanelError();
 
             try {
-                const payload = { question: question, evaluate: true };
+                const payload = { query: queryText, evaluate: true }; // UPDATED: Key to 'query' and value
                 const response = await fetch('/query', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -313,13 +327,13 @@
 
                 const data = await response.json();
                 displayCurrentQueryResults(data); 
-                questionTextareaEl.value = ''; 
-                loadFeedbackHistory(); // Refresh history after a new query
+                queryTextareaEl.value = ''; // UPDATED: Variable name
+                loadFeedbackHistory(); 
             } catch (error) {
                 console.error('Error submitting query:', error);
                 displayError(`Query failed: ${error.message}`);
                 currentQueryDisplayEl.style.display = 'block';
-                currentQuestionTextEl.textContent = question;
+                currentQueryTextEl.textContent = queryText; // UPDATED: To show the submitted query on error
                 answerDisplayEl.textContent = `Error: ${error.message}`;
                 confidenceDisplayEl.textContent = 'N/A';
                 evaluationContainerEl.style.display = 'none';
@@ -330,8 +344,9 @@
         });
 
         // Initial load
-        loadResourceFiles();
-        loadFeedbackHistory(); // Load history on page start
+        // loadResourceFiles(); // Assuming this endpoint will be implemented or is not critical for the query functionality
+        console.log("Attempting to load feedback history on page start.");
+        loadFeedbackHistory(); 
         currentQueryDisplayEl.style.display = 'none'; 
     </script>
 </body>
