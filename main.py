@@ -115,6 +115,22 @@ def get_history():
     except Exception as e:
         current_logger.exception(f"API Error during /history processing: {e}")
         return jsonify({"error": f"An internal error occurred retrieving history: {str(e)}"}), 500
+
+@app.route('/get_resource_files', methods=['GET'])
+def get_resource_files():
+    """Endpoint to list the PDF resource files."""
+    current_logger = getattr(rag_system, 'logger', logging.getLogger('flask.app'))
+    try:
+        # doc_pattern_original is defined globally: "data_source/ibn_kathir/*.pdf"
+        pdf_files = glob.glob(doc_pattern_original)
+        resource_filenames = sorted([os.path.basename(f) for f in pdf_files]) # Sort for consistent order
+        
+        if not resource_filenames:
+            current_logger.info(f"No resource files found matching pattern: {doc_pattern_original}")
+        return jsonify({"files": resource_filenames})
+    except Exception as e:
+        current_logger.error(f"Error listing resource files for pattern '{doc_pattern_original}': {e}")
+        return jsonify({"error": "Could not retrieve resource files."}), 500
     
 # --- Your Original /query Route ---
 @app.route('/query', methods=['POST'])
