@@ -168,7 +168,7 @@ def handle_query():
     top_k = data.get('top_k', 5)
     max_hops = data.get('max_hops', 3)
     request_eval = data.get('evaluate', False)
-    generate_graph = data.get('generate_graph', True)
+    generate_graph = data.get('generate_graph', False)
 
     current_logger.info(f"Received API query: '{query_text}' (top_k={top_k}, max_hops={max_hops}, eval={request_eval}, graph={generate_graph})")
 

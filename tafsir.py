@@ -1734,7 +1734,7 @@ class TafsirRAG:
     def process_query(self, query: str, top_k: int = 5, max_hops: int = 3, # Changed from 'question' to 'query'
                       use_query_expansion: bool = False,
                       request_evaluation: bool = True,
-                      generate_graph: bool = True, 
+                      generate_graph: bool = False, 
                       record_user_feedback: Optional[Dict[str, Any]] = None
                       ) -> Dict[str, Any]:
         """

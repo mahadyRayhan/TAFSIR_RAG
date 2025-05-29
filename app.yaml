@@ -1,0 +1,8 @@
+runtime: python311  # Or python39, python310, python312 - choose a recent Python 3 version
+entrypoint: gunicorn -b :$PORT main:app
+
+handlers:
+- url: /static
+  static_dir: static
+- url: /.*
+  script: auto

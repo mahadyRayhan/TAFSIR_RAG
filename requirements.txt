@@ -1,0 +1,14 @@
+numpy
+pandas
+graphviz
+PyPDF2
+google-generativeai
+scikit-learn
+tenacity
+langchain-text-splitters  # This will pull in the compatible langchain-core
+python-dotenv
+chromadb
+Flask
+gunicorn                  # For App Engine
+packaging>=23.2,<24.0    # To resolve the conflict and satisfy langchain-core
+# Add any other direct dependencies your project needs here
