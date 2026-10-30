@@ -95,3 +95,13 @@ def test_real_files_parse_core_questions():
     assert parse_query("Surah Al-Fatiha verse 5").verses == [(1, 5, 5)]
     assert parse_query("Explain Surah `Abasa").surahs == [80]
     assert parse_query("Al-Falaq").surahs == [] and parse_query("Surah Al-Falaq").surahs == [113]
+
+
+@pytest.mark.parametrize("text, compare", [
+    ("Contrast the believers with the hypocrites", True),
+    ("What is the difference between Salah and Sawm?", True),
+    ("Musa versus Fir`awn", True),
+    ("The story of Adam and Iblis", False),
+])
+def test_comparison_questions_are_flagged(text, compare):
+    assert parse(text).compare is compare

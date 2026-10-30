@@ -49,6 +49,8 @@ tafsir meaning means mean teaching teachings teach teaches understand understand
 concept concepts throughout contrast compare comparison versus vs difference differences
 """.split())
 
+# A comparison wants each side covered on its own, not only passages that mention both.
+_COMPARE_RE = re.compile(r"\b(?:contrast|compar\w*|versus|vs\.?|differen\w*|distinguish\w*|between)\b", re.I)
 _IBN_KATHIR_RE = re.compile(r"\bIbn\s+Kathir(?:'s|s)?\b", re.I)
 _VERSE_WORD = r"(?:verses?|ayahs?|ayat|ayaat|aya|v\.)"
 _SURAH_WORD = r"(?:surahs?|surat|suras?|chapters?)"
@@ -85,6 +87,7 @@ class ParsedQuery:
     surahs: List[int] = field(default_factory=list)   # whole surahs named without verses
     concepts: List[Concept] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)    # e.g. a verse number out of range
+    compare: bool = False                             # "contrast A with B", "A versus B"
 
 
 def fts_terms(terms: Sequence[str]) -> str:
@@ -250,4 +253,5 @@ def parse_query(text: str, glossary: Optional[Sequence[Set[str]]] = None,
     names = surah_names if surah_names is not None else dict(_default_surah_names())
     verses, surahs, rest, notes = extract_references(text, names)
     return ParsedQuery(text=text, verses=verses, surahs=surahs,
-                       concepts=extract_concepts(rest, groups), notes=notes)
+                       concepts=extract_concepts(rest, groups), notes=notes,
+                       compare=bool(_COMPARE_RE.search(text)))

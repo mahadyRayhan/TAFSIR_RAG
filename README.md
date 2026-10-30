@@ -31,7 +31,7 @@ logs/        (git-ignored)
 | 4 Keyword index (SQLite FTS5) | `pipeline.index` | `data/build/tafsir.db` | `step-4` |
 | 5 Glossary (human-reviewed) | `pipeline.glossary` | `glossary/glossary.csv` (tracked) | `step-5` |
 | 6 Query parsing | `rag.query` (+ `pipeline.surahs`) | `glossary/surah_names.csv` (tracked) | `step-6` |
-| 7 Retrieval + RRF | | | |
+| 7 Retrieval + RRF | `rag.retrieve` (`python -m rag.retrieve "question"`) | ranked passages | `step-7` |
 | 8 Test set / recall | | | |
 | 9 Answer writing | | | |
 | 10 Citation checks | | | |
@@ -82,6 +82,19 @@ come from the book's own opening/closing lines (`python -m pipeline.surahs` writ
 also fixed two section boundaries from step 2: Al-Baqarah's intro (pp. 64-69) had stayed in
 1:7, and the duplicated Al-Ma`un copy had leaked its title into surah 108; surah 31's heading
 printed as `Chapter - 31)` is now recognised.
+
+**Step 7 notes.** `rag.retrieve.retrieve()` fuses ranked lists with reciprocal rank fusion:
+direct verse lookup; coverage (passages ranked by the question's subject concepts they
+contain, each weighted by its rarity in the book, typed words above glossary aliases);
+one list per concept; any concept; and two structural lists from the book itself, its
+cross-references and the neighbouring sections of a story told over consecutive sections.
+A concept is a subject when it occurs in at most 20% of passages ("Iblis" 8%, "Allah" 96%).
+Named verses dominate; "in Al-Baqarah" limits the search to that surah; "contrast A with B"
+covers each side separately. Passages under 25% of the best score are dropped; at most 30
+passages / 120k characters are returned in Qur'an order, each with its reasons and the
+section's verse translations. "Adam and Iblis" returns 2:30-36, 7:11-27, 15:28-44, 17:61-65,
+18:50, 20:115-126 and 38:71-85 in ~70 ms. The weights were set on a handful of questions only;
+step 8's test set is what should tune them.
 
 ## Setup
 
