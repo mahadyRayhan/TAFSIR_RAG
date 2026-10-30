@@ -15,3 +15,5 @@ PAGES_JSONL = BUILD_DIR / "pages.jsonl"
 PASSAGES_JSONL = BUILD_DIR / "passages.jsonl"
 # Step 3 output: one JSON record per Qur'an reference found in a passage.
 CITATIONS_JSONL = BUILD_DIR / "citations.jsonl"
+# Step 4 output: SQLite database with the passages, FTS5 keyword index and citation graph.
+DB_PATH = BUILD_DIR / "tafsir.db"

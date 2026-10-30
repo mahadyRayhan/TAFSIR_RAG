@@ -26,7 +26,7 @@ logs/        (git-ignored)
 | 1 Clean text extraction | `pipeline.extract_pages` | `data/build/pages.jsonl` | `step-1` |
 | 2 Verse sections + passages | `pipeline.sections` | `data/build/passages.jsonl` | `step-2` |
 | 3 Citation graph | `pipeline.citations` | `data/build/citations.jsonl` | `step-3` |
-| 4 Keyword index (SQLite FTS5) | | | |
+| 4 Keyword index (SQLite FTS5) | `pipeline.index` | `data/build/tafsir.db` | `step-4` |
 | 5 Glossary | | | |
 | 6 Query parsing | | | |
 | 7 Retrieval + RRF | | | |
@@ -56,14 +56,18 @@ passages and all resolve to the section commenting on that verse, giving 4,405 d
 section-to-section edges (e.g. the 2:34 prostration passage cites 18:50, "Iblis was one of the
 Jinn"). Volume:page citations next to hadith sources (`Al-Kubra 5:12`) are skipped.
 
+**Step 4 notes.** `tafsir.db` (SQLite, ~31 MB, builds in under a second) holds the passages,
+an FTS5 BM25 index over headings + text (Porter stemming, diacritics removed, ayn/apostrophes
+dropped, headings weighted 4x) and the citation edges. A plain `"Adam" AND "Iblis"` search
+returns the story in surahs 2, 7, 15, 17, 18, 20 and 38 from the book alone. Deployment note:
+App Engine standard rejects files over 32 MB, so the database is close to that limit.
+
 ## Setup
 
 ```bash
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 # put the PDF at data/source/ibn_kathir/
-python -m pipeline.extract_pages
-python -m pipeline.sections
-python -m pipeline.citations
+python -m pipeline        # runs steps 1-4 (~25 s, no API calls)
 pytest
 ```
