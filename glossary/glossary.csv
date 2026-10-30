@@ -1,7 +1,7 @@
 id,keep,terms,evidence,example
 gloss:allahs,,Allah's | Name,term in book x4140; defined as 'Name' x2,2:224-225#1: Allah's (Name)
 gloss:ayat,,Ayat | signs | Laws,term in book x1211; defined as 'signs' x8; 'Laws' x2,13:3-4#1: Ayat (signs)
-gloss:ibrahim,,Ibrahim | Abraham | he was a,term in book x859; defined as 'Abraham' x13; 'he was a' x3,2:124#1: Ibrahim (Abraham)
+gloss:ibrahim,,Ibrahim | Abraham,term in book x859; defined as 'Abraham' x13; 'he was a' x3,2:124#1: Ibrahim (Abraham)
 gloss:taqwa,,At-Taqwa | Taqwa | piety | righteousness,term in book x563; defined as 'piety' x10; 'righteousness' x9,"2:197#1: At-Taqwa (piety, righteousness)"
 gloss:isa,,Isa | Jesus,term in book x496; defined as 'Jesus' x3,2:116-117#3: Isa (Jesus)
 gloss:firawn,,Fir`awn | Pharaoh,term in book x491; defined as 'Pharaoh' x2,1:2#3: Fir`awn (Pharaoh)
@@ -9,8 +9,8 @@ gloss:shaytan,,Shaytan | Satan | devil,term in book x436; defined as 'Satan' x6;
 gloss:ishaq,,Ishaq | Isaac,term in book x389; defined as 'Isaac' x8,2:126-128#4: Ishaq (Isaac)
 gloss:ummah,,Ummah | nation | Muslims | community | term | followers,term in book x364; defined as 'nation' x4; 'Muslims' x4; 'community' x3; 'term' x2; 'followers' x2,"2:83: Ummah (community, nation)"
 gloss:dawud,,Dawud | David,term in book x361; defined as 'David' x6,2:250-252: Dawud (David)
-gloss:malik,,Al-Malik | King | Owner,term in book x353; defined as 'King' x2; 'Owner' x2,1:4#2: Al-Malik (King or Owner)
-gloss:salah,,Salah | As-Salah | prayer | prayers | Iqamat-As-Salah | blessings,term in book x339; defined as 'prayer' x32; 'prayers' x3; 'Iqamat-As-Salah' x2; 'blessings' x2,1:0#5: Salah (prayer)
+gloss:malik,,Al-Malik | Owner,term in book x353; defined as 'King' x2; 'Owner' x2,1:4#2: Al-Malik (King or Owner)
+gloss:salah,,Salah | As-Salah | prayer | prayers | Iqamat-As-Salah,term in book x339; defined as 'prayer' x32; 'prayers' x3; 'Iqamat-As-Salah' x2; 'blessings' x2,1:0#5: Salah (prayer)
 spelling:quraysh,,quraysh | quraish,spelling variants: quraysh x331; quraish x2,
 gloss:nuh,,Nuh | Noah,term in book x312; defined as 'Noah' x3,2:40-41#1: Nuh (Noah)
 gloss:jibril,,Jibril | Gabriel,term in book x283; defined as 'Gabriel' x8,1:0#3: While Jibril (Gabriel)
