@@ -27,7 +27,7 @@ logs/        (git-ignored)
 | 2 Verse sections + passages | `pipeline.sections` | `data/build/passages.jsonl` | `step-2` |
 | 3 Citation graph | `pipeline.citations` | `data/build/citations.jsonl` | `step-3` |
 | 4 Keyword index (SQLite FTS5) | `pipeline.index` | `data/build/tafsir.db` | `step-4` |
-| 5 Glossary | | | |
+| 5 Glossary (human-reviewed) | `pipeline.glossary` | `glossary/glossary.csv` (tracked) | `step-5` |
 | 6 Query parsing | | | |
 | 7 Retrieval + RRF | | | |
 | 8 Test set / recall | | | |
@@ -61,6 +61,14 @@ an FTS5 BM25 index over headings + text (Porter stemming, diacritics removed, ay
 dropped, headings weighted 4x) and the citation edges. A plain `"Adam" AND "Iblis"` search
 returns the story in surahs 2, 7, 15, 17, 18, 20 and 38 from the book alone. Deployment note:
 App Engine standard rejects files over 32 MB, so the database is close to that limit.
+
+**Step 5 notes.** `python -m pipeline.glossary` proposes equivalent search terms from the book
+only: definitions the translators give in parentheses (`Iblis (Shaytan)`, `Salah (prayer)`,
+`At-Taqwa (piety, righteousness)`, each seen at least twice) and pure spelling variants
+(`Quraysh`/`Quraish`). **Nothing is used until a person approves it**: in
+`glossary/glossary.csv` set `keep` to `y`, edit `terms` (pipe-separated) as needed, and add
+your own rows with an id starting `custom:`. Re-running the generator keeps all edits.
+Approved rows that share a term are merged into one group.
 
 ## Setup
 

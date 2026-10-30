@@ -9,6 +9,9 @@ BUILD_DIR = DATA_DIR / "build"
 
 SOURCE_PDF = SOURCE_DIR / "ibn_kathir" / "Tafsir Ibn Kathir all 10 volumes.pdf"
 
+# Step 5: reviewed glossary (tracked in git, unlike data/).
+GLOSSARY_CSV = ROOT / "glossary" / "glossary.csv"
+
 # Step 1 output: one JSON record per PDF page.
 PAGES_JSONL = BUILD_DIR / "pages.jsonl"
 # Step 2 output: one JSON record per passage (a verse section or one topic part of it).
