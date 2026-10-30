@@ -12,6 +12,8 @@ The LLM only writes the final answer from retrieved passages, and its citations 
 ```text
 main.py, tafsir.py, templates/   current Flask app (legacy vector RAG; replaced in step 11)
 pipeline/                        offline build steps (PDF -> pages -> sections -> index)
+rag/                             runtime: query parsing, retrieval, answering
+glossary/                        reviewed, tracked: glossary.csv, surah_names.csv
 tests/                           pytest suite
 scripts/                         manual tools (api_smoke_test.py hits a running server)
 legacy/hadith/                   earlier Imam Nawawi hadith prototype
@@ -28,7 +30,7 @@ logs/        (git-ignored)
 | 3 Citation graph | `pipeline.citations` | `data/build/citations.jsonl` | `step-3` |
 | 4 Keyword index (SQLite FTS5) | `pipeline.index` | `data/build/tafsir.db` | `step-4` |
 | 5 Glossary (human-reviewed) | `pipeline.glossary` | `glossary/glossary.csv` (tracked) | `step-5` |
-| 6 Query parsing | | | |
+| 6 Query parsing | `rag.query` (+ `pipeline.surahs`) | `glossary/surah_names.csv` (tracked) | `step-6` |
 | 7 Retrieval + RRF | | | |
 | 8 Test set / recall | | | |
 | 9 Answer writing | | | |
@@ -70,12 +72,23 @@ only: definitions the translators give in parentheses (`Iblis (Shaytan)`, `Salah
 your own rows with an id starting `custom:`. Re-running the generator keeps all edits.
 Approved rows that share a term are merged into one group.
 
+**Step 6 notes.** `rag.query.parse_query()` reads verse references (`2:34`, `2:30-39`,
+"Surah Al-Baqarah verse 34", "verses 30 to 39 of Al-Baqarah", "chapter 18 verse 50"), whole
+surahs ("Surah Yusuf", "in Al-Baqarah") and search concepts, each expanded only by approved
+glossary groups; typed words are kept apart from expansions. Bare prophet names ("story of
+Yusuf") stay concepts. Arabic name phrases ("Ayat al-Kursi") are searched whole. Surah names
+come from the book's own opening/closing lines (`python -m pipeline.surahs` writes
+`glossary/surah_names.csv`; add aliases such as "The Cow" there by hand). Building this step
+also fixed two section boundaries from step 2: Al-Baqarah's intro (pp. 64-69) had stayed in
+1:7, and the duplicated Al-Ma`un copy had leaked its title into surah 108; surah 31's heading
+printed as `Chapter - 31)` is now recognised.
+
 ## Setup
 
 ```bash
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 # put the PDF at data/source/ibn_kathir/
-python -m pipeline        # runs steps 1-4 (~25 s, no API calls)
+python -m pipeline        # steps 1-4 + glossary/surah-name candidates (~25 s, no API calls)
 pytest
 ```

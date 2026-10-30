@@ -36,7 +36,7 @@ MIN_GLOSS_COUNT = 2     # a definition must appear at least twice
 MAX_GLOSS_WORDS = 4
 MIN_SPELLING_COUNT = 2
 
-_ARTICLE_RE = re.compile(r"^(?:Al|As|At|Ad|An|Ar|Az|Ash|Adh|Ath|Az|Aw)-(?=[A-Za-z`])")
+_ARTICLE_RE = re.compile(r"^(?:Al|As|At|Ad|An|Ar|Az|Ash|Adh|Ath|Aw)-(?=[A-Za-z`])", re.I)
 _TERM = r"[A-Z][A-Za-z`'\-]+"
 _GLOSS_RE = re.compile(rf"\b({_TERM}(?: {_TERM}){{0,2}}) \(([A-Za-z][A-Za-z ,'\-]{{2,40}})\)")
 _PRONOUNS = {"he", "she", "it", "they", "him", "her", "them", "his", "their", "you", "we", "i", "me", "us"}

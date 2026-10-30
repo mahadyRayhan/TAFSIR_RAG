@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Tuple
 from pipeline import paths
 from pipeline.quran import is_valid_verse
 
-_REF_RE = re.compile(r"(?<![\d:])(\d{1,3}):(\d{1,3})((?:\s*[-,]\s*\d{1,3}(?![\d:]))*)(?![\d:])")
+REF_RE = re.compile(r"(?<![\d:])(\d{1,3}):(\d{1,3})((?:\s*[-,]\s*\d{1,3}(?![\d:]))*)(?![\d:])")
 _PART_RE = re.compile(r"([-,])\s*(\d{1,3})")
 _HADITH_SOURCE_RE = re.compile(
     r"(?:Muslim|Bukhari|Ahmad|Kubra|Musnad|Sunan|Fath|Mustadrak|Tabari|Majah|Dawud|Tirmidhi|"
@@ -38,7 +38,7 @@ def parse_refs(text: str) -> Tuple[List[Tuple[Ref, str]], Dict[str, int]]:
     skipped matches ("invalid" verse numbers, "source" hadith volume:page)."""
     refs: List[Tuple[Ref, str]] = []
     skipped = {"invalid": 0, "source": 0}
-    for m in _REF_RE.finditer(text):
+    for m in REF_RE.finditer(text):
         if _HADITH_SOURCE_RE.search(text[max(0, m.start() - 25):m.start()]):
             skipped["source"] += 1
             continue
