@@ -88,34 +88,44 @@ def book():
         (4, body("(5. You we worship.)")),             # verse 4 has no printed marker
         (4, body("Commentary on 5.")),
         (4, body("(4. quoted out of order.)")),        # rejected: stays in 1:5-7
-        (5, heading("Surat Al-Baqarah")),
+        (5, heading("Surat Al-Baqarah")),              # earliest title -> start of 2's intro
         (5, body("The individual letters Alif Lam Mim.")),
+        (5, heading("Surat Al-Baqarah was revealed in Al-Madinah")),
+        (5, body("More about the surah.")),
         (6, body("(2. This is the Book.)")),           # restart -> surah 2, intro takes 2:1
         (6, body("Commentary on 2:2.")),
         (7, heading("The Tafsir of Surah Al `Imran")),
         (7, heading("(Chapter 3)")),
         (7, body("(1. Alif Lam Mim.)")),
         (7, body("Commentary on 3:1.")),
+        (8, heading("The Tafsir of Surah Al `Imran")),  # duplicate copy's title, dropped
         (8, heading("(Chapter 3)")),                   # duplicate copy, skipped
         (8, body("(1. Alif Lam Mim.)")),
         (8, body("Duplicate commentary.")),
+        (9, heading("The Tafsir of Surat An-Nisa")),   # seen while skipping; belongs to 4
+        (9, heading("Chapter - 4)")),                  # anchor printed without "("
+        (9, body("(1. O mankind!)")),
     ]
 
 
 def test_segment_structure():
     sections, report = segment(book())
     ids = [section_id(s) for s in sections]
-    assert ids == ["0:0", "1:0", "1:1-4", "1:5-7", "2:1", "2:2-286", "3:0", "3:1-200"]
+    assert ids == ["0:0", "1:0", "1:1-4", "1:5-7", "2:1", "2:2-286", "3:0", "3:1-200", "4:0", "4:1-176"]
     by_id = dict(zip(ids, sections))
+    texts = {sid: [b["text"] for _, b in s["blocks"] if "text" in b] for sid, s in by_id.items()}
     assert by_id["1:1-4"]["marked"] == [1, 2, 3]
     assert by_id["2:1"]["kind"] == "intro"            # carved from the end of surah 1
-    assert by_id["1:5-7"]["blocks"][-1][1]["text"] == "(4. quoted out of order.)"
-    assert "Surat Al-Baqarah" in [b["text"] for _, b in by_id["2:1"]["blocks"]]
-    assert "The Tafsir of Surah Al `Imran" in [b["text"] for _, b in by_id["3:0"]["blocks"]]
+    assert texts["1:5-7"][-1] == "(4. quoted out of order.)"
+    assert texts["2:1"][:2] == ["Surat Al-Baqarah", "The individual letters Alif Lam Mim."]
+    assert "Surat Al-Baqarah was revealed in Al-Madinah" in texts["2:1"]
+    assert texts["3:0"][0] == "The Tafsir of Surah Al `Imran"
+    assert texts["3:1-200"] == ["(1. Alif Lam Mim.)", "Commentary on 3:1."]
+    assert texts["4:0"] == ["The Tafsir of Surat An-Nisa", "Chapter - 4)"]
     assert report["resets"] == [(6, 2)]
     assert report["duplicates"] == [(8, 3)]
     assert report["rejected_headers"] == [(4, 1, [4])]
-    assert not any("Duplicate" in b.get("text", "") for s in sections for _, b in s["blocks"])
+    assert not any("Duplicate" in t for ts in texts.values() for t in ts)
 
 
 def test_passages_records():

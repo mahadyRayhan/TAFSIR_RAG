@@ -30,8 +30,10 @@ from pipeline.quran import SURAH_COUNT, verse_count
 MAX_PASSAGE_CHARS = 6000
 MIN_PASSAGE_CHARS = 600
 
-_CHAPTER_HEADING_RE = re.compile(r"\(\s*Chapter\s*-?\s*(\d{1,3})\s*\)")
-_SURAH_TITLE_RE = re.compile(r"^(?:The Tafsir of )?Sura[th]?\b", re.I)
+_CHAPTER_HEADING_RE = re.compile(r"(?:^|\()\s*Chapter\s*-?\s*(\d{1,3})\s*\)")
+_ANCHORED_TITLE_RE = re.compile(r"^The Tafsir of Sura", re.I)
+# Also matches "The Tafsir of Al-Mu`awwidhatayn (Surahs Al-Falaq and An-Nas)".
+_RESET_TITLE_RE = re.compile(r"^(?:The Tafsir of\b|Sura[th]?\b)", re.I)
 # "(30. And ...)" and the occasional "(1.Ta Sin ...)"; the lookahead rules out "(1.5".
 _VERSE_HEADER_RE = re.compile(r"\(\d{1,3}\.\s*(?=[^\d\s])")
 _VERSE_MARKER_RE = re.compile(r"(?:^|(?<=\))|(?<=\) ))\((\d{1,3})\.\s*(?=[^\d\s])")
@@ -62,15 +64,33 @@ def _new_section(surah: int, kind: str, start: int = 0) -> dict:
             "marked": [], "blocks": [], "header_open": kind == "verses"}
 
 
-def _carve_intro(cur: dict, surah: int, title_re=_SURAH_TITLE_RE) -> dict:
-    """Move a trailing surah title heading (and what follows it) from `cur` into a new
-    intro section for `surah`."""
+def _carve_intro(cur: dict, surah: int, title_re=_ANCHORED_TITLE_RE) -> dict:
+    """Move the last surah title heading (and what follows it) from `cur` into a new intro
+    section for `surah`. Used where a "(Chapter N)" anchor follows the title heading."""
     intro = _new_section(surah, "intro")
     for i in range(len(cur["blocks"]) - 1, -1, -1):
         _, b = cur["blocks"][i]
         if b["kind"] == "heading" and title_re.match(b["text"]):
             intro["blocks"] = cur["blocks"][i:]
             del cur["blocks"][i:]
+            break
+    return intro
+
+
+def _carve_intro_after_verses(cur: dict, surah: int) -> dict:
+    """For a surah found by the numbering restart (no "(Chapter N)" anchor): its intro starts
+    at the first surah title heading after the last verse block of `cur`. The intro can hold
+    several title-like headings ("Surat Al-Baqarah" ... "Surat Al-Baqarah was revealed in
+    Al-Madinah"), so the earliest one is the boundary."""
+    intro = _new_section(surah, "intro")
+    blocks = cur["blocks"]
+    last_verse = max((i for i, (_, b) in enumerate(blocks) if b["kind"] == "body" and verse_markers(b["text"])),
+                     default=-1)
+    for i in range(last_verse + 1, len(blocks)):
+        _, b = blocks[i]
+        if b["kind"] == "heading" and _RESET_TITLE_RE.match(b["text"]):
+            intro["blocks"] = blocks[i:]
+            del blocks[i:]
             break
     return intro
 
@@ -84,22 +104,26 @@ def segment(blocks: Iterable[Block]) -> Tuple[List[dict], Dict[str, list]]:
 
     cur = _new_section(0, "front")
     sections.append(cur)
-    surah, prev_end, skipping = 0, 0, False
+    surah, prev_end = 0, 0
+    skipped: Optional[dict] = None  # collects a duplicated surah copy, which is dropped
 
     for page, b in blocks:
         anchor = chapter_anchor(b)
         if anchor is not None:
             if anchor <= surah:
-                skipping = True
+                _carve_intro(cur, surah)  # drop the duplicate's title heading
+                skipped = _new_section(surah, "duplicate")
                 report["duplicates"].append((page, anchor))
                 continue
-            skipping = False
+            # The next surah's title heading may sit at the end of a skipped duplicate.
+            cur = _carve_intro(skipped or cur, anchor)
+            skipped = None
             surah, prev_end = anchor, 0
-            cur = _carve_intro(cur, surah, re.compile(r"^The Tafsir of Sura", re.I))
             sections.append(cur)
             cur["blocks"].append((page, b))
             continue
-        if skipping:
+        if skipped is not None:
+            skipped["blocks"].append((page, b))
             continue
 
         markers = verse_markers(b["text"]) if b["kind"] == "body" else []
@@ -107,7 +131,7 @@ def segment(blocks: Iterable[Block]) -> Tuple[List[dict], Dict[str, list]]:
                 and surah + 1 not in anchored and surah < SURAH_COUNT:
             surah, prev_end = surah + 1, 0
             report["resets"].append((page, surah))
-            cur = _carve_intro(cur, surah)
+            cur = _carve_intro_after_verses(cur, surah)
             sections.append(cur)
 
         valid: List[int] = []
