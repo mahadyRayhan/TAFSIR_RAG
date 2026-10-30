@@ -1,0 +1,640 @@
+diff --git a/scripts/api_smoke_test.py b/scripts/api_smoke_test.py
+index df0652c..da20a20 100644
+--- a/scripts/api_smoke_test.py
++++ b/scripts/api_smoke_test.py
+@@ -80,8 +80,8 @@ if __name__ == "__main__":
+ 
+     test_questions = [
+         "Explain the teaching of Surah Al-Fatiha according to Ibn Kathir.",
+-        "Based on Ibn Kathir's Tafsir of the early sections of Surah Al-Baqarah, contrast the primary characteristics he attributes to the believers (al-muttaqin) with those he describes for the hypocrites (al-munafiqin). What are the key consequences or warnings Ibn Kathir highlights regarding hypocrisy?",
+-        "From Ibn Kathir's explanation of the story of Adam and Iblis (Satan) in Surah Al-Baqarah, what were the core reasons for Iblis's disobedience, and what are the primary lessons or admonitions Ibn Kathir derives from this specific narrative for mankind?"
++        # "Based on Ibn Kathir's Tafsir of the early sections of Surah Al-Baqarah, contrast the primary characteristics he attributes to the believers (al-muttaqin) with those he describes for the hypocrites (al-munafiqin). What are the key consequences or warnings Ibn Kathir highlights regarding hypocrisy?",
++        # "From Ibn Kathir's explanation of the story of Adam and Iblis (Satan) in Surah Al-Baqarah, what were the core reasons for Iblis's disobedience, and what are the primary lessons or admonitions Ibn Kathir derives from this specific narrative for mankind?"
+     ]
+ 
+     # --- Run Tests ---
+diff --git a/tafsir.py b/tafsir.py
+index 8de3bea..bb46a3c 100644
+--- a/tafsir.py
++++ b/tafsir.py
+@@ -408,37 +408,39 @@ class TafsirRAG:
+         if 'embeddings' not in df.columns or 'chunk_text' not in df.columns:
+              raise ValueError("DataFrame must contain 'embeddings' and 'chunk_text' columns for ChromaDB population.")
+ 
++        if df.empty:
++            self.logger.warning("DataFrame provided to _populate_chroma_from_dataframe is empty. Nothing to add.")
++            return
++
+         # Convert string embeddings if needed
+         if isinstance(df['embeddings'].iloc[0], str):
+-            self.logger.info("Converting string embeddings from DataFrame...")
+-            df['embeddings'] = df['embeddings'].apply(lambda x: list(map(float, re.findall(r"-?\d+\.?\d*", x)))) # More robust parsing
+-        elif isinstance(df['embeddings'].iloc[0], list):
+-             pass # Already in list format
++            self.logger.info("Converting string embeddings from DataFrame for ChromaDB...")
++            df['embeddings'] = df['embeddings'].apply(lambda x: list(map(float, re.findall(r"-?\d+\.?\d*", x))))
+         elif isinstance(df['embeddings'].iloc[0], np.ndarray):
+              df['embeddings'] = df['embeddings'].apply(lambda x: x.tolist())
+-        else:
+-             raise TypeError(f"Unsupported embedding type in DataFrame: {type(df['embeddings'].iloc[0])}")
++        elif not isinstance(df['embeddings'].iloc[0], list):
++             raise TypeError(f"Unsupported embedding type in DataFrame for ChromaDB: {type(df['embeddings'].iloc[0])}")
+ 
+         # Prepare data for ChromaDB batch insertion
+-        ids = [f"chunk_{i}" for i in range(len(df))]
+-        embeddings = df['embeddings'].tolist()
+-        documents = df['chunk_text'].tolist()
+-        metadatas = [{
+-            "document_name": row.get('document_name', 'Unknown'),
++        ids = [f"doc_{row.get('document_name', 'unknown')}_p{row.get('page_number', 0)}_c{row.get('chunk_on_page', idx)}" for idx, (_, row) in enumerate(df.iterrows())]
++        embeddings_list = df['embeddings'].tolist()
++        documents_list = df['chunk_text'].tolist()
++        metadatas_list = [{
++            "document_name": str(row.get('document_name', 'Unknown')), # Ensure string
+             "page_number": int(row.get('page_number', -1)),
+-            "chunk_number": int(row.get('chunk_number', -1))
++            "chunk_on_page": int(row.get('chunk_on_page', -1)) # Use the new field name
+         } for _, row in df.iterrows()]
+ 
+         # Add documents to ChromaDB in batches
+-        batch_size = 100 # ChromaDB recommends batches of reasonable size
++        batch_size = 100
+         total_added = 0
+         for i in range(0, len(df), batch_size):
+             batch_ids = ids[i:i+batch_size]
+-            batch_embeddings = embeddings[i:i+batch_size]
+-            batch_documents = documents[i:i+batch_size]
+-            batch_metadatas = metadatas[i:i+batch_size]
++            batch_embeddings = embeddings_list[i:i+batch_size]
++            batch_documents = documents_list[i:i+batch_size]
++            batch_metadatas = metadatas_list[i:i+batch_size]
+ 
+-            if not batch_ids: continue # Skip empty batches
++            if not batch_ids: continue
+ 
+             try:
+                 self.collection.add(
+@@ -451,7 +453,6 @@ class TafsirRAG:
+                 self.logger.info(f"Added batch {i//batch_size + 1} ({len(batch_ids)} documents) to ChromaDB. Total added: {total_added}")
+             except Exception as batch_err:
+                  self.logger.error(f"Error adding batch {i//batch_size + 1} to ChromaDB: {batch_err}. Skipping batch.")
+-                 # Optional: Add more robust error handling here (e.g., retry individual items)
+ 
+         self.logger.info(f"Finished populating ChromaDB from DataFrame. Added {total_added} documents.")
+ 
+@@ -598,7 +599,7 @@ class TafsirRAG:
+ 
+         # --- 2. Embedding Generation (Batched) ---
+         chunk_texts = [info["chunk_text"] for info in all_chunks_info]
+-        # chunk_texts = chunk_texts[:50] # REMOVE THIS LINE FOR FULL PROCESSING
++        chunk_texts = chunk_texts[:50] # REMOVE THIS LINE FOR FULL PROCESSING
+         self.logger.info(f"Generating embeddings for {len(chunk_texts)} chunks...")
+         all_embeddings = self._batch_get_embeddings(chunk_texts, task_type="RETRIEVAL_DOCUMENT")
+ 
+@@ -647,34 +648,20 @@ class TafsirRAG:
+ 
+         if self.chunk_strategy == "recursive":
+             text_splitter = RecursiveCharacterTextSplitter(
+-                chunk_size=self.chunk_size, # Keep or adjust
+-                chunk_overlap=self.chunk_overlap, # Keep or adjust
+-                # NEW SEPARATORS FOR TAFSIR:
++                chunk_size=self.chunk_size,
++                chunk_overlap=self.chunk_overlap,
+                 separators=[
+-                    "\n\nقوله تعالى:",  # "His statement, Exalted is He:" - very common
+-                    "\n\nالآية",       # "The Verse"
+-                    "\n\n[ سورة",      # Start of a Surah mention if it's a distinct section
+-                    "\n\n( تفسير الآية", # "Explanation of Verse"
+-                    # Patterns that might indicate the start of a new verse discussion
+-                    r"\n\n\(\s*\d+\s*\)", # e.g., (1) for verse 1, if PDF uses this
+-                    "\n\nوروى",        # "And it was narrated by" - start of a narration
+-                    "\n\nوقال",        # "And he said" - start of a quote/opinion
+-                    # More generic fallbacks
++                    "\n\nقوله تعالى:", "\n\nالآية", "\n\n[ سورة", "\n\n( تفسير الآية",
++                    r"\n\n\(\s*\d+\s*\)", "\n\nوروى", "\n\nوقال",
+                     "\n\n", "\n", ". ", " "
+                 ],
+                 length_function=len,
+-                # is_separator_regex=True # You might need regex for some patterns
+             )
+-        # Add other strategies here (e.g., semantic)
+-        # elif self.chunk_strategy == "semantic":
+-        #     self.logger.warning("Semantic chunking not yet fully implemented, using recursive.")
+-        #     # Placeholder for semantic chunking logic
+-        #     text_splitter = RecursiveCharacterTextSplitter(...) # Fallback or semantic implementation
+         else:
+              self.logger.warning(f"Unknown chunk strategy '{self.chunk_strategy}'. Defaulting to 'recursive'.")
+              text_splitter = RecursiveCharacterTextSplitter(
+                  chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap,
+-                 separators=["\n\nḤadīth No.", "\n\n", "\n", ". ", ", ", " ", ""]
++                 separators=["\n\nḤadīth No.", "\n\n", "\n", ". ", ", ", " ", ""] # Fallback
+              )
+ 
+         all_chunks_info = []
+@@ -687,33 +674,32 @@ class TafsirRAG:
+                 with open(doc_path, "rb") as file:
+                     pdf_reader = PyPDF2.PdfReader(file)
+                     for page_num, page in enumerate(pdf_reader.pages):
++                        page_actual_number = page_num + 1
+                         try:
+                             page_text = page.extract_text()
+-                            if not page_text or len(page_text.strip()) < 10: # Skip empty/very short pages
+-                                 self.logger.debug(f"Skipping empty/short page {page_num + 1} in {doc_name}")
++                            if not page_text or len(page_text.strip()) < 10:
++                                 self.logger.debug(f"Skipping empty/short page {page_actual_number} in {doc_name}")
+                                  continue
+                         except Exception as page_err:
+-                            self.logger.error(f"Error extracting text from {doc_name}, page {page_num + 1}: {page_err}")
++                            self.logger.error(f"Error extracting text from {doc_name}, page {page_actual_number}: {page_err}")
+                             continue
+ 
+-                        # Split text into chunks
+                         try:
+                              chunks = text_splitter.split_text(page_text)
+-                             # for chunk_num, chunk_text in enumerate(chunks[:300]): # REMOVE THIS LIMIT FOR FULL PROCESSING
+-                             for chunk_num, chunk_text in enumerate(chunks):
++                             for chunk_idx, chunk_text in enumerate(chunks):
+                                  cleaned_chunk = chunk_text.strip()
+-                                 if len(cleaned_chunk) >= 20: # Filter out very small chunks
++                                 if len(cleaned_chunk) >= 20:
+                                      all_chunks_info.append({
+                                          "document_name": doc_name,
+-                                         "page_number": page_num + 1,
+-                                         "chunk_number": chunk_num,
++                                         "page_number": page_actual_number,
++                                         "chunk_on_page": chunk_idx + 1, # Chunk index on this specific page
+                                          "chunk_text": cleaned_chunk,
+                                      })
+                                      total_chunks_processed += 1
+                                  else:
+-                                      self.logger.debug(f"Skipping short chunk {chunk_num} on page {page_num + 1} from {doc_name}")
++                                      self.logger.debug(f"Skipping short chunk {chunk_idx+1} on page {page_actual_number} from {doc_name}")
+                         except Exception as split_err:
+-                             self.logger.error(f"Error splitting text on page {page_num+1} of {doc_name}: {split_err}")
++                             self.logger.error(f"Error splitting text on page {page_actual_number} of {doc_name}: {split_err}")
+ 
+             except FileNotFoundError:
+                 self.logger.error(f"Document not found during processing: {doc_path}. Skipping.")
+@@ -818,71 +804,56 @@ class TafsirRAG:
+             self.logger.warning("CSV/InMemory vector database is not available or lacks embeddings.")
+             return []
+ 
+-        # Ensure query embedding is a 2D numpy array
+         query_embedding_2d = np.array([query_embedding])
+ 
+-        # Check if embeddings column contains valid numpy arrays
+-        if not isinstance(self.vector_db_df['embeddings'].iloc[0], np.ndarray):
+-             self.logger.error("Embeddings in DataFrame are not numpy arrays. Cannot perform similarity search.")
+-             return []
++        # Ensure embeddings are numpy arrays of consistent shape
++        valid_embeddings_data = []
++        valid_indices = []
++        expected_dim = query_embedding_2d.shape[1]
+ 
+-        # Stack database embeddings (Potential memory issue for very large DBs)
+-        try:
+-             # Filter out any rows where 'embeddings' might be an empty array or not a 1D array
+-             valid_embeddings_series = self.vector_db_df["embeddings"][self.vector_db_df["embeddings"].apply(lambda x: isinstance(x, np.ndarray) and x.ndim == 1 and x.size > 0)]
+-             if valid_embeddings_series.empty:
+-                 self.logger.warning("No valid embeddings found in the database to stack.")
+-                 return []
+-             database_embeddings = np.stack(valid_embeddings_series.to_numpy())
+-
+-             if len(database_embeddings) == 0: # Should be caught by valid_embeddings_series.empty
+-                  self.logger.warning("Database embeddings stack is empty.")
+-                  return []
+-             # Dimension check
+-             if query_embedding_2d.shape[1] != database_embeddings.shape[1]:
+-                  self.logger.error(f"Embedding dimension mismatch: Query ({query_embedding_2d.shape[1]}) vs DB ({database_embeddings.shape[1]})")
+-                  return []
+-        except Exception as stack_err:
+-             self.logger.error(f"Error stacking database embeddings: {stack_err}. Is the embedding data valid?")
+-             # Log a sample embedding for debugging
+-             if len(self.vector_db_df) > 0:
+-                  sample_emb = self.vector_db_df['embeddings'].iloc[0]
+-                  self.logger.debug(f"Sample embedding type: {type(sample_emb)}, shape: {sample_emb.shape if isinstance(sample_emb, np.ndarray) else 'N/A'}")
+-             return []
++        for idx, emb_val in self.vector_db_df["embeddings"].items():
++            if isinstance(emb_val, np.ndarray) and emb_val.ndim == 1 and emb_val.shape[0] == expected_dim:
++                valid_embeddings_data.append(emb_val)
++                valid_indices.append(idx)
++            else:
++                self.logger.debug(f"Skipping invalid embedding at index {idx}: type {type(emb_val)}, shape {getattr(emb_val, 'shape', 'N/A')}")
++
++        if not valid_embeddings_data:
++            self.logger.warning("No valid embeddings found in the database to perform similarity search.")
++            return []
++
++        database_embeddings = np.stack(valid_embeddings_data)
+ 
+-        # Calculate cosine similarities
+         try:
+              similarities = cosine_similarity(query_embedding_2d, database_embeddings)[0]
+         except Exception as sim_err:
+              self.logger.error(f"Error calculating cosine similarity: {sim_err}")
+              return []
+ 
+-        # Get top_k indices
+-        # Ensure top_k is not greater than the number of available chunks
+         actual_top_k = min(top_k, len(similarities))
+         if actual_top_k <= 0: return []
+ 
+-        # Get indices of top_k largest similarities
+-        top_indices_in_filtered = np.argsort(similarities)[-actual_top_k:][::-1]
+-        
+-        # Map these indices back to the original DataFrame's indices if filtering occurred
+-        original_indices = valid_embeddings_series.iloc[top_indices_in_filtered].index
++        top_filtered_indices = np.argsort(similarities)[-actual_top_k:][::-1]
++        # Map filtered indices back to original DataFrame indices
++        original_top_indices = [valid_indices[i] for i in top_filtered_indices]
+ 
+-        # Prepare results
+         results = []
+-        relevant_rows = self.vector_db_df.loc[original_indices]
++        relevant_rows = self.vector_db_df.loc[original_top_indices]
+         for i, (_, row) in enumerate(relevant_rows.iterrows()):
+-            # Similarity score corresponds to the order in 'top_indices_in_filtered' applied to 'similarities'
+-            similarity_score = similarities[top_indices_in_filtered[i]]
++            # The similarity score corresponds to the i-th element in top_filtered_indices
++            # applied to the full similarities array (after sorting)
++            original_similarity_index = top_filtered_indices[i]
++            similarity_score = similarities[original_similarity_index]
++
+             results.append({
+-                "id": f"chunk_{original_indices[i]}", # Use original index as ID for CSV
++                "id": f"csv_chunk_{original_top_indices[i]}",
+                 "text": row['chunk_text'],
+                 "metadata": {
+-                    "document_name": row.get('document_name', 'Unknown'),
++                    "document_name": str(row.get('document_name', 'Unknown')),
+                     "page_number": int(row.get('page_number', -1)),
+-                    "chunk_number": int(row.get('chunk_number', -1)),
++                    "chunk_on_page": int(row.get('chunk_on_page', -1)) # Use new field name
+                 },
+-                "score": float(similarity_score) # Ensure score is float
++                "score": float(similarity_score)
+             })
+         return results
+ 
+@@ -964,16 +935,21 @@ class TafsirRAG:
+              return [] # Return empty list on unexpected errors
+ 
+     def _format_context_from_chunks(self, chunks: List[Dict[str, Any]]) -> str:
+-         """Formats the retrieved chunks into a string for the LLM prompt."""
++         """Formats the retrieved chunks into a string for the LLM prompt, including detailed source."""
+          if not chunks:
+              return "No relevant context found."
+ 
+          context_parts = []
+-         for chunk in chunks:
+-             metadata = chunk.get('metadata', {})
+-             score = chunk.get('score', 0.0)
+-             source_info = f"Source: Doc='{metadata.get('document_name', 'N/A')}', Page={metadata.get('page_number', 'N/A')}, Chunk={metadata.get('chunk_number', 'N/A')}, Score={score:.4f}"
+-             context_parts.append(f"[{source_info}]\n{chunk.get('text', '')}")
++         for chunk_info in chunks:
++             metadata = chunk_info.get('metadata', {})
++             score = chunk_info.get('score', 0.0)
++             source_ref = (
++                 f"Source: Document='{metadata.get('document_name', 'N/A')}', "
++                 f"Page={metadata.get('page_number', 'N/A')}, "
++                 f"ChunkOnPage={metadata.get('chunk_on_page', 'N/A')}, " # Use new field name
++                 f"RetrievalScore={score:.4f}"
++             )
++             context_parts.append(f"[{source_ref}]\n{chunk_info.get('text', '')}")
+ 
+          return "\n\n---\n\n".join(context_parts)
+ 
+@@ -1465,31 +1441,28 @@ class TafsirRAG:
+ 
+     def _generate_final_answer(self, original_query: str, accumulated_context_list: List[str]) -> str:
+         """
+-        Generates the final answer using the LLM, specifically prompted for multihop context synthesis.
++        Generates the final answer using the LLM, specifically prompted for multihop context synthesis
++        and encouraging source citation.
+         """
+         self.logger.info("Generating final answer from accumulated context...")
+-
+-        # Combine context from all hops/summaries for the final prompt
+-        # Use a very distinct separator
+         final_context_str = "\n\n==== CONTEXT FROM HOP/SUMMARY SEPARATOR ====\n\n".join(accumulated_context_list)
+ 
+         if not final_context_str or final_context_str.strip() == "No relevant context found.":
+              self.logger.warning("No context available for final answer generation.")
+-             return "Based on the information retrieved, I could not find a specific answer to your query." # Changed from question
++             return "Based on the information retrieved, I could not find a specific answer to your query."
+ 
+-        # --- Prompt explicitly designed for Multihop Synthesis ---
+         prompt = f"""You are an expert assistant knowledgeable about Tafsir Ibn Kathir's commentary on the Quran.
+-        Your task is to synthesize a final, comprehensive answer to the user's *Original Query* using *only* the information found within the *Accumulated Context* provided below. The context comes from potentially multiple search steps and may include summaries.
++        Your task is to synthesize a final, comprehensive answer to the user's *Original Query* using *only* the information found within the *Accumulated Context* provided below. Each piece of context is preceded by its source information (Document, Page, ChunkOnPage, RetrievalScore).
+ 
+         Instructions:
+         1.  Carefully read the *Original Query*.
+-        2.  Carefully read *all sections* within the Accumulated Context, noting any summaries indicated by "[SUMMARIZED CONTEXT]:". This context is from Tafsir Ibn Kathir.
+-        3.  Synthesize a single, coherent answer that directly and fully addresses the *Original Query* based on Ibn Kathir's explanations. Combine relevant pieces of information accurately.
+-        4.  Base your answer *strictly* on the text present in the Accumulated Context. Do *not* add external information, interpretations, or opinions not explicitly stated. Do not make assumptions or guess.
+-        5.  If the Accumulated Context *definitively lacks* the information needed to fully answer the Original Query (after reviewing all sections), state clearly: "Based on the provided context, the specific information about [missing aspect] could not be found." Do not apologize excessively.
+-        6.  Structure the answer clearly and logically. Start directly with the answer.
+-        7.  Do NOT refer to the search process (e.g., "Based on the retrieved context..."). Just provide the synthesized answer based *on* the context.
+-        8.  Do NOT include the source markers (like `[Source: ...]`) in your final answer.
++        2.  Carefully read *all sections* within the Accumulated Context.
++        3.  Synthesize a single, coherent answer that directly and fully addresses the *Original Query*.
++        4.  Base your answer *strictly* on the text present in the Accumulated Context. Do *not* add external information.
++        5.  If the Accumulated Context *definitively lacks* the information, state clearly: "Based on the provided context, the specific information could not be found."
++        6.  **For traceability by the user, when you use information from a specific context piece to form part of your answer, conclude that sentence or paragraph with a reference to its source in parentheses, like this: (Source: Document 'doc_name.pdf', Page X, ChunkOnPage Y).**
++        7.  Do NOT refer to the search process itself (e.g., "Based on the retrieved context...").
++        8.  If multiple sources support a point, you can list them, e.g., (Sources: DocA P1 C2; DocB P5 C1).
+ 
+         Original Query:
+         "{original_query}"
+@@ -1499,14 +1472,12 @@ class TafsirRAG:
+         {final_context_str}
+         --- END CONTEXT ---
+ 
+-        Final Synthesized Answer:"""
++        Final Synthesized Answer (Remember to include source citations as instructed based on the provided 'ChunkOnPage' number):"""
+ 
+         final_response = self._generate_llm_response(prompt)
+ 
+-        # Check if the LLM itself failed
+         if final_response.startswith("LLM_ERROR"):
+             self.logger.error(f"Final answer generation failed due to LLM error: {final_response}")
+-            # Provide a user-friendly error message
+             return f"I encountered an error while trying to generate the final answer ({final_response}). Please try again."
+         else:
+              self.logger.info(f"Final answer generated (length: {len(final_response)}). Snippet: {final_response[:200]}...")
+@@ -1731,40 +1702,17 @@ class TafsirRAG:
+ 
+     # --- Main Query Processing ---
+ 
+-    def process_query(self, query: str, top_k: int = 5, max_hops: int = 3, # Changed from 'question' to 'query'
++    def process_query(self, query: str, top_k: int = 5, max_hops: int = 3,
+                       use_query_expansion: bool = False,
+                       request_evaluation: bool = True,
+-                      generate_graph: bool = False, 
++                      generate_graph: bool = False,
+                       record_user_feedback: Optional[Dict[str, Any]] = None
+                       ) -> Dict[str, Any]:
+-        """
+-        Processes a user query using the enhanced multihop RAG pipeline.
+-        Includes options for graph generation and formatted reasoning.
+-
+-        Args:
+-            query: The user's query.
+-            top_k: Number of chunks to retrieve per hop.
+-            max_hops: Maximum number of retrieval/reasoning hops.
+-            use_query_expansion: If True, expands the initial query.
+-            request_evaluation: If True, runs automated evaluation on the final answer.
+-            record_user_feedback: Optional dict containing 'rating' and/or 'comment'.
+-
+-        Returns:
+-            A dictionary containing:
+-            - 'final_answer': The generated answer string.
+-            - 'source_info': Description of the process.
+-            - 'reasoning_trace': List of strings detailing the multi-hop process.
+-            - 'confidence_score': Estimated confidence (0.0-1.0) or None.
+-            - 'evaluation_metrics': Dictionary of automated metrics (if requested) or None.
+-            - 'debug_info': Dictionary with timing, hop count, context length.
+-        """
+         process_start_time = time.time()
+         self.logger.info(f"\n--- Starting Query Process ---")
+-        self.logger.info(f"Original Query: '{query}'") # Changed from 'Original Question'
++        self.logger.info(f"Original Query: '{query}'")
+         self.logger.info(f"Config: top_k={top_k}, max_hops={max_hops}, expansion={use_query_expansion}, eval={request_evaluation}")
+ 
+-        # --- Initialization ---
+-        # Basic check for vector DB availability
+         db_ready = False
+         if self.vector_db_type == 'chroma' and hasattr(self, 'collection') and self.collection is not None and self.collection.count() > 0:
+             db_ready = True
+@@ -1773,81 +1721,84 @@ class TafsirRAG:
+ 
+         if not db_ready:
+             self.logger.critical("Vector database is not initialized or empty. Cannot process query.")
++            # ... (return error as before)
+             return {
+                 "final_answer": "Error: The knowledge base (Vector DB) is not available. Please check configuration and data.",
+-                "source_info": "Initialization Error",
+-                "reasoning_trace": ["Vector DB not ready"],
+-                "confidence_score": None,
+-                "evaluation_metrics": None,
++                "retrieved_sources": "Initialization Error", # Updated key name
++                "reasoning_trace": ["Vector DB not ready"], "formatted_reasoning": "Vector DB not ready",
++                "confidence_score": None, "evaluation_metrics": None,
+                 "debug_info": {"processing_time_s": time.time() - process_start_time, "hops_taken": 0, "final_context_length": 0}
+             }
+ 
+-        original_query_param = query # Use the input parameter 'query'
+-        # Initial query transformation
++
++        original_query_param = query
+         current_query_text = self._transform_query(original_query_param)
+-        
+-        # Optional Query Expansion for the first hop
+         queries_to_try = [current_query_text]
+         if use_query_expansion:
+-            self.logger.info("Applying query expansion for the initial retrieval...")
+-            queries_to_try = self._expand_query(current_query_text, num_expansions=2) # Get 1 original + 2 expansions
++            queries_to_try = self._expand_query(current_query_text, num_expansions=2)
+ 
+-
+-        accumulated_context_list = [] # Stores context strings from each hop/summary
+-        reasoning_trace = ["START"] # Track the LLM's reasoning steps
+-        search_query_history = [current_query_text] # Start with the initial transformed query
++        accumulated_context_list = []
++        reasoning_trace = ["START"]
++        search_query_history = [current_query_text]
+         hops_taken = 0
+-        all_retrieved_chunks_this_session = [] # Keep track of all unique chunks retrieved
+-
++        final_context_sources: List[Dict[str, Any]] = []
++        unique_chunk_texts_in_final_context = set() # Use text to track uniqueness for final sources list
+ 
+-        # --- Multihop Loop ---
+-        for hop_count_iter in range(max_hops): # Renamed 'hop' to 'hop_count_iter' to avoid conflict
++        for hop_count_iter in range(max_hops):
+             hops_taken = hop_count_iter + 1
+             self.logger.info(f"\n--- Hop {hops_taken}/{max_hops} ---")
+             reasoning_trace.append(f"--- Hop {hops_taken} ---")
+ 
+-            if not current_query_text: 
++            if not current_query_text:
+                  self.logger.warning("Current query is empty. Stopping hop.")
+                  reasoning_trace.append(f"Hop {hops_taken}: Error - Query is empty. Breaking loop.")
+                  break
+ 
+             self.logger.info(f"Retrieving context for query: '{current_query_text}'")
+-            if current_query_text not in search_query_history: # Add if it's a new query from reasoning
++            if current_query_text not in search_query_history:
+                  search_query_history.append(current_query_text)
+             reasoning_trace.append(f"Hop {hops_taken}: Retrieving with query -> '{current_query_text}'")
+ 
+-            retrieved_chunks = self._get_relevant_chunks(current_query_text, top_k=top_k)
++            retrieved_chunks_this_hop = self._get_relevant_chunks(current_query_text, top_k=top_k)
+ 
+-            if not retrieved_chunks:
++            if not retrieved_chunks_this_hop:
+                 self.logger.warning(f"Retrieval returned no relevant chunks for hop {hops_taken}.")
+                 reasoning_trace.append(f"Hop {hops_taken}: Retrieval yielded no results.")
+                 if hop_count_iter == 0:
+                     self.logger.warning("Initial retrieval failed. Aborting multi-hop.")
+                     reasoning_trace.append("Hop 1: Initial retrieval failed. Stopping.")
+-                    break 
++                    break
+             else:
+-                 self.logger.info(f"Retrieved {len(retrieved_chunks)} chunks for hop {hops_taken}.")
+-                 reasoning_trace.append(f"Hop {hops_taken}: Retrieved {len(retrieved_chunks)} chunk(s). Top score: {retrieved_chunks[0]['score']:.4f}")
+-                 all_retrieved_chunks_this_session.extend(retrieved_chunks) 
++                 self.logger.info(f"Retrieved {len(retrieved_chunks_this_hop)} chunks for hop {hops_taken}.")
++                 reasoning_trace.append(f"Hop {hops_taken}: Retrieved {len(retrieved_chunks_this_hop)} chunk(s). Top score: {retrieved_chunks_this_hop[0]['score']:.4f}")
+ 
+-
+-            accumulated_context_list, added_unique_chunks = self._manage_context(
++            accumulated_context_list, added_unique_chunks_data_this_hop = self._manage_context(
+                  accumulated_context_list,
+-                 retrieved_chunks, 
+-                 max_tokens=7000 
++                 retrieved_chunks_this_hop,
++                 max_tokens=7000
+             )
+-            if added_unique_chunks:
+-                 reasoning_trace.append(f"Hop {hops_taken}: Added {len(added_unique_chunks)} unique chunks to context.")
+-            else:
+-                 reasoning_trace.append(f"Hop {hops_taken}: No new unique chunks added to context.")
+ 
++            if added_unique_chunks_data_this_hop:
++                reasoning_trace.append(f"Hop {hops_taken}: Added {len(added_unique_chunks_data_this_hop)} unique chunks to context list.")
++                for chunk_data in added_unique_chunks_data_this_hop: # These are dicts from _get_relevant_chunks
++                    chunk_text_content = chunk_data.get('text', '')
++                    if chunk_text_content not in unique_chunk_texts_in_final_context:
++                        final_context_sources.append({
++                            "document_name": chunk_data.get("metadata", {}).get("document_name", "N/A"),
++                            "page_number": chunk_data.get("metadata", {}).get("page_number", "N/A"),
++                            "chunk_on_page": chunk_data.get("metadata", {}).get("chunk_on_page", "N/A"),
++                            "retrieval_score": chunk_data.get("score", 0.0),
++                            "text_snippet": chunk_text_content[:150] + "..."
++                        })
++                        unique_chunk_texts_in_final_context.add(chunk_text_content)
++            else:
++                reasoning_trace.append(f"Hop {hops_taken}: No new unique chunks added to context list.")
+ 
+             full_accumulated_text_for_reasoning = "\n\n==== CONTEXT FROM HOP/SUMMARY SEPARATOR ====\n\n".join(accumulated_context_list)
+-
+             action, value = self._reason_and_refine_query(
+-                original_query_param, # Use the initial query for reasoning goal
++                original_query_param,
+                 full_accumulated_text_for_reasoning,
+-                search_query_history, 
++                search_query_history,
+                 hops_taken
+             )
+             reasoning_trace.append(f"Hop {hops_taken}: Reasoning result -> Action='{action}', Value='{value[:100]}...'")
+@@ -1855,47 +1806,39 @@ class TafsirRAG:
+             if action == "ANSWER_COMPLETE":
+                 self.logger.info("Reasoning concluded: Sufficient context likely found or cannot improve.")
+                 reasoning_trace.append(f"Hop {hops_taken}: Reasoning -> ANSWER_COMPLETE. Proceeding to final answer.")
+-                break 
++                break
+             elif action == "NEXT_QUERY":
+                 next_raw_query = value
+-                current_query_text = self._transform_query(next_raw_query) # Update current_query_text for the next loop
++                current_query_text = self._transform_query(next_raw_query)
+                 reasoning_trace.append(f"Hop {hops_taken}: Reasoning -> NEXT_QUERY = '{current_query_text}'")
+             elif action == "ERROR":
+                  self.logger.error(f"Error during reasoning step: {value}. Stopping multihop process.")
+                  reasoning_trace.append(f"Hop {hops_taken}: Reasoning -> ERROR: {value}. Proceeding to final answer with current context.")
+-                 break 
+-            else: 
++                 break
++            else:
+                  self.logger.warning(f"Unexpected action '{action}' from reasoning step. Stopping.")
+                  reasoning_trace.append(f"Hop {hops_taken}: Reasoning -> UNEXPECTED ACTION '{action}'. Proceeding to final answer.")
+-                 break 
++                 break
+ 
+-        if hops_taken == max_hops and action != "ANSWER_COMPLETE":
++        if hops_taken >= max_hops and action != "ANSWER_COMPLETE": # Check if max_hops was actually reached
+              self.logger.info("Max hops reached. Proceeding to final answer generation.")
+              reasoning_trace.append(f"Max hops ({max_hops}) reached.")
+ 
+         reasoning_trace.append("--- Final Answer Generation ---")
+-
+         final_answer = self._generate_final_answer(original_query_param, accumulated_context_list)
+-
++        final_context_str = "\n\n==== CONTEXT FROM HOP/SUMMARY SEPARATOR ====\n\n".join(accumulated_context_list) # Needed for eval/confidence
+ 
+         confidence_score = None
+         evaluation_metrics = None
+-        final_context_str = "\n\n==== CONTEXT FROM HOP/SUMMARY SEPARATOR ====\n\n".join(accumulated_context_list)
+-
+-        if not final_answer.startswith("LLM_ERROR:") and final_context_str:
++        if not final_answer.startswith("LLM_ERROR:") and final_context_str.strip() and final_context_str.strip() != "No relevant context found.":
+             confidence_score = self._assess_answer_confidence(final_answer, final_context_str, original_query_param)
+             reasoning_trace.append(f"Confidence Score: {confidence_score:.2f}" if confidence_score is not None else "Confidence Score: N/A")
+-
+             if request_evaluation:
+                  evaluation_metrics = self.evaluate_response(original_query_param, final_answer, final_context_str)
+                  reasoning_trace.append(f"Evaluation Metrics: {evaluation_metrics}")
+ 
+         formatted_reasoning = self._format_reasoning_trace(reasoning_trace)
+-        
+-        graph_filename = None
+-        if generate_graph:
+-            graph_filename = self._generate_hop_graph(reasoning_trace, search_query_history)
+-
++        graph_filename = self._generate_hop_graph(reasoning_trace, search_query_history) if generate_graph else None
+ 
+         process_end_time = time.time()
+         processing_time = process_end_time - process_start_time
+@@ -1904,35 +1847,32 @@ class TafsirRAG:
+         self.logger.info(f"Final Answer Snippet: {final_answer[:200]}...")
+ 
+         debug_info = {
+-             "processing_time_s": round(processing_time, 2),
+-             "hops_taken": hops_taken,
+-             "queries_used": search_query_history,
+-             "final_context_length": len(final_context_str),
++             "processing_time_s": round(processing_time, 2), "hops_taken": hops_taken,
++             "queries_used": search_query_history, "final_context_length": len(final_context_str),
+              "vector_db_type": self.vector_db_type,
+-             "cache_hits_embedding": sum(1 for t_trace in reasoning_trace if "Embedding cache HIT" in t_trace), 
+-             "cache_hits_llm": sum(1 for t_trace in reasoning_trace if "LLM cache HIT" in t_trace), 
+-             "graph_filename": graph_filename 
++             "cache_hits_embedding": sum(1 for t in reasoning_trace if "Embedding cache HIT" in t),
++             "cache_hits_llm": sum(1 for t in reasoning_trace if "LLM cache HIT" in t),
++             "graph_filename": graph_filename
+         }
+ 
+         user_rating = record_user_feedback.get('rating') if record_user_feedback else None
+         user_comment = record_user_feedback.get('comment') if record_user_feedback else None
+         self.record_feedback(
+-            query=original_query_param, # Use original_query_param here
+-            answer=final_answer,
+-            hop_count=hops_taken,
+-            final_context=final_context_str,
+-            reasoning_trace=reasoning_trace,
+-            user_rating=user_rating,
+-            user_comment=user_comment,
++            query=original_query_param, answer=final_answer, hop_count=hops_taken,
++            final_context=final_context_str, reasoning_trace=reasoning_trace,
++            user_rating=user_rating, user_comment=user_comment,
+             evaluation_metrics=evaluation_metrics
+         )
+ 
++        # Ensure 'retrieved_sources' key is always present
++        return_sources = final_context_sources if final_context_sources else "No specific sources were used in the final context or retrieval failed."
++
+         return {
+             "final_answer": final_answer,
+-            "source_info": f"Synthesized from context retrieved over {hops_taken} hop(s) using {self.vector_db_type} DB.",
+-            "reasoning_trace": reasoning_trace, 
+-            "formatted_reasoning": formatted_reasoning, 
++            "retrieved_sources": return_sources, # Updated key name and value
++            "reasoning_trace": reasoning_trace,
++            "formatted_reasoning": formatted_reasoning,
+             "confidence_score": confidence_score,
+             "evaluation_metrics": evaluation_metrics,
+-            "debug_info": debug_info 
++            "debug_info": debug_info
+         }
+\ No newline at end of file
