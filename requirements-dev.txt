@@ -1,0 +1,3 @@
+# Offline build pipeline and tests (not needed by the deployed app)
+pymupdf==2.0.*
+pytest>=8

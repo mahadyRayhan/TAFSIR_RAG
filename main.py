@@ -10,14 +10,14 @@ print("Starting Flask application...")
 start_init_time = time.time()
 rag_system = None # Initialize as None
 # Using the exact doc_pattern and initialization logic from your original file
-doc_pattern_original = "data_source/ibn_kathir/*.pdf"
+doc_pattern_original = "data/source/ibn_kathir/*.pdf"
 
 try:
     # Ensure the path pattern correctly points to your PDFs
     # The nested try-except for initialization is specific to your original file, preserving it.
     try:
         # Check if the directory exists before globbing, as in your original
-        pdf_directory_original = os.path.dirname(doc_pattern_original) # "data_source/ibn_kathir"
+        pdf_directory_original = os.path.dirname(doc_pattern_original) # "data/source/ibn_kathir"
         if not os.path.exists(pdf_directory_original) :
             print(f"\nWARNING: Document directory '{pdf_directory_original}' for PDFs matching '{doc_pattern_original}' not found.")
             # rag_system will remain None as per original logic flow if path doesn't exist.
@@ -31,6 +31,9 @@ try:
                 vector_db_type="csv", #"chroma",
                 log_level="INFO",
                 documents_path=doc_pattern_original, # Using your original pattern
+                vector_db_path="data/legacy/vector_db_hadith.csv",
+                feedback_db_path="data/legacy/feedback_history.csv",
+                log_file="logs/hadith_rag.log",
                 use_embedding_cache=True,
                 use_llm_cache=True
             )
@@ -121,7 +124,7 @@ def get_resource_files():
     """Endpoint to list the PDF resource files."""
     current_logger = getattr(rag_system, 'logger', logging.getLogger('flask.app'))
     try:
-        # doc_pattern_original is defined globally: "data_source/ibn_kathir/*.pdf"
+        # doc_pattern_original is defined globally: "data/source/ibn_kathir/*.pdf"
         pdf_files = glob.glob(doc_pattern_original)
         resource_filenames = sorted([os.path.basename(f) for f in pdf_files]) # Sort for consistent order
         

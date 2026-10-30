@@ -1,6 +1,6 @@
 # Byte-compiled / optimized / DLL files
-data_source/
-data_source/**
+data/
+logs/
 __pycache__/
 *.py[cod]
 *$py.class
@@ -76,7 +76,7 @@ docs/_build/
 target/
 
 # Environments
-.envß
+.env
 .venv
 env/
 venv/
