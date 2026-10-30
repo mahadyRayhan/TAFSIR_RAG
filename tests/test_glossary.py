@@ -109,3 +109,13 @@ def test_generated_glossary_has_core_terms():
     assert "Satan" in rows["gloss:iblis"]["terms"]
     assert "piety" in rows["gloss:taqwa"]["terms"]
     assert "devils" in rows["gloss:shayatin"]["terms"]
+
+
+@pytest.mark.data
+def test_approved_groups_do_not_chain_into_large_groups():
+    if not paths.GLOSSARY_CSV.exists():
+        pytest.skip("glossary/glossary.csv not generated")
+    groups = load_glossary()
+    assert groups, "no approved rows (keep=y)"
+    too_big = [sorted(g) for g in groups if len(g) > 10]
+    assert not too_big, f"approved rows merged into very large groups: {too_big}"
