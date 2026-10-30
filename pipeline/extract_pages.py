@@ -71,12 +71,12 @@ _MARK_RUN_RE = re.compile(r"\x1f(?: ?\x1f){2,}")
 _REVERSED_REF_RE = re.compile(r"\)\s*(\d{1,3}\s*:\s*\d{1,3}(?:\s*-\s*\d{1,3})?)\s*\(")
 _MACRON_AFTER_VOWEL_RE = re.compile(r"(?<=[AaEeIiOoUu])0")
 _LONG_I_RE = re.compile(r"(?<=[A-Za-z])0")
-_UNMAPPED_GLYPH_RE = re.compile(r" ?®\d{3}")
+_UNMAPPED_GLYPH_RE = re.compile(r" ?[®£]\d{3}")
 _OPENERS = set(" \n\"'`(")
 
 
 def needs_repair(text: str) -> bool:
-    return ALT_MARK in text or "®" in text or bool(re.search(r"[A-Za-z]0", text)) \
+    return ALT_MARK in text or bool(_UNMAPPED_GLYPH_RE.search(text)) or bool(re.search(r"[A-Za-z]0", text)) \
         or bool(_REVERSED_REF_RE.search(text))
 
 

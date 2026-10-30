@@ -93,6 +93,7 @@ VOCAB = {"al-hasan", "hasan", "al-basri", "basri", "ad-dahhak", "dahhak", "hadit
     ("dream.) \x1f 20: 110\x1f. Then", "dream.) (20:110). Then"),
     ("In the H\x1f ad0th of Jar0r and Ibra0h0m", "In the Hadith of Jarir and Ibrahim"),
     ("Abu Dawud and An-Nasa ®299\x1f. Allah", "Abu Dawud and An-Nasa. Allah"),
+    ("Virtues of Surat An-Nis£257, A Madinan Surah", "Virtues of Surat An-Nis, A Madinan Surah"),
     ("listed: \x1f \x1f \x1f \x1f \x1f:", "listed::"),
 ])
 def test_repair_alt_encoding(raw, expected):
@@ -137,7 +138,7 @@ def test_every_page_present_in_order(pages):
 @pytest.mark.data
 def test_no_encoding_junk_left(full_text):
     assert not re.search(r"[぀-ヿ∀-⏿＀-￯]", full_text), "Arabic glyph junk"
-    assert "\x1f" not in full_text and "®" not in full_text
+    assert "\x1f" not in full_text and "®" not in full_text and "£" not in full_text
     assert not re.search(r"[A-Za-z]0", full_text), "unrepaired long-vowel marks"
 
 
