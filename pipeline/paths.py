@@ -13,3 +13,5 @@ SOURCE_PDF = SOURCE_DIR / "ibn_kathir" / "Tafsir Ibn Kathir all 10 volumes.pdf"
 PAGES_JSONL = BUILD_DIR / "pages.jsonl"
 # Step 2 output: one JSON record per passage (a verse section or one topic part of it).
 PASSAGES_JSONL = BUILD_DIR / "passages.jsonl"
+# Step 3 output: one JSON record per Qur'an reference found in a passage.
+CITATIONS_JSONL = BUILD_DIR / "citations.jsonl"

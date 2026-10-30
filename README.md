@@ -25,6 +25,14 @@ logs/        (git-ignored)
 |------|--------|--------|-----|
 | 1 Clean text extraction | `pipeline.extract_pages` | `data/build/pages.jsonl` | `step-1` |
 | 2 Verse sections + passages | `pipeline.sections` | `data/build/passages.jsonl` | `step-2` |
+| 3 Citation graph | `pipeline.citations` | `data/build/citations.jsonl` | `step-3` |
+| 4 Keyword index (SQLite FTS5) | | | |
+| 5 Glossary | | | |
+| 6 Query parsing | | | |
+| 7 Retrieval + RRF | | | |
+| 8 Test set / recall | | | |
+| 9 Answer writing | | | |
+| 10 Citation checks | | | |
 
 **Step 1 notes.** PyMuPDF replaces PyPDF2 (broken words like `th e` fell from ~3,400 to ~30 per
 million characters). Arabic text uses a custom-encoded font and is dropped by font name; each run
@@ -42,14 +50,11 @@ then at paragraph breaks (max ~6,000 chars); each passage keeps the section id, 
 "The Prostration was before Adam but the Obedience was to Allah". The PDF prints Surah Al-Ma`un
 twice; the second copy is skipped. `pipeline/quran.py` holds the standard verse count per surah,
 used only to validate parsing.
-| 3 Citation graph | | | |
-| 4 Keyword index (SQLite FTS5) | | | |
-| 5 Glossary | | | |
-| 6 Query parsing | | | |
-| 7 Retrieval + RRF | | | |
-| 8 Test set / recall | | | |
-| 9 Answer writing | | | |
-| 10 Citation checks | | | |
+
+**Step 3 notes.** 5,113 Qur'an references (`(7:199-200)`, `8:62,63`) are parsed from the
+passages and all resolve to the section commenting on that verse, giving 4,405 distinct
+section-to-section edges (e.g. the 2:34 prostration passage cites 18:50, "Iblis was one of the
+Jinn"). Volume:page citations next to hadith sources (`Al-Kubra 5:12`) are skipped.
 
 ## Setup
 
@@ -59,5 +64,6 @@ pip install -r requirements.txt -r requirements-dev.txt
 # put the PDF at data/source/ibn_kathir/
 python -m pipeline.extract_pages
 python -m pipeline.sections
+python -m pipeline.citations
 pytest
 ```
