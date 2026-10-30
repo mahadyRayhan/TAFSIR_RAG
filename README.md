@@ -25,6 +25,13 @@ logs/        (git-ignored)
 |------|--------|--------|-----|
 | 1 Clean text extraction | `pipeline.extract_pages` | `data/build/pages.jsonl` | `step-1` |
 | 2 Verse sections | | | |
+
+**Step 1 notes.** PyMuPDF replaces PyPDF2 (broken words like `th e` fell from ~3,400 to ~30 per
+million characters). Arabic text uses a custom-encoded font and is dropped by font name; each run
+becomes an `arabic` block labelled `verse` or `hadith`. About 800 pages use an alternate encoding
+(`\x1f` for parentheses and under-dots, `0` for long vowels, reversed `)2:140(` references); these
+are repaired, using the book's own vocabulary to tell `H\x1f asan` (= Hasan) from a parenthesis.
+Known limit: ~180 repaired paragraphs keep an unmatched parenthesis where the PDF lost the glyph.
 | 3 Citation graph | | | |
 | 4 Keyword index (SQLite FTS5) | | | |
 | 5 Glossary | | | |
